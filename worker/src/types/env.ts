@@ -4,4 +4,6 @@ export interface Env {
   DB: D1Database
   /** R2 bucket for file content storage */
   STORAGE: R2Bucket
+  /** Static assets binding for frontend SPA */
+  ASSETS: Fetcher
 }

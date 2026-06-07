@@ -116,6 +116,17 @@ app.get('/api/v1/s/:token/download/:fileId', async (c) => {
   return new Response(obj.body, { headers })
 })
 
+/** Catch-all: serve frontend SPA with client-side routing fallback */
+app.all('*', async (c) => {
+  const url = new URL(c.req.url)
+  // API routes are matched before this catch-all, so this is a SPA or file request
+  const res = await c.env.ASSETS.fetch(c.req.raw)
+  if (res.status === 404 && !url.pathname.startsWith('/api/')) {
+    return c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url).toString()))
+  }
+  return res
+})
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
