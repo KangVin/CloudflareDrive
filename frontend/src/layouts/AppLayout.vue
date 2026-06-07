@@ -1,30 +1,37 @@
 <script setup lang="ts">
-import { h } from 'vue'
+import { computed, h } from 'vue'
 import { NLayout, NLayoutHeader, NLayoutContent, NMenu } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import type { MenuOption } from 'naive-ui'
-import { FolderOpenOutline, TrashOutline, ShareOutline } from '@vicons/ionicons5'
+import { FolderOpenOutline, TrashOutline, ShareOutline, SettingsOutline } from '@vicons/ionicons5'
 import { HEADER_HEIGHT } from '@/utils/constants'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const router = useRouter()
+const settings = useSettingsStore()
 
-const menuOptions: MenuOption[] = [
+const menuOptions = computed<MenuOption[]>(() => [
   {
-    label: 'Files',
+    label: settings.t('files'),
     key: '/',
     icon: () => h(FolderOpenOutline),
   },
   {
-    label: 'Trash',
+    label: settings.t('trash'),
     key: '/trash',
     icon: () => h(TrashOutline),
   },
   {
-    label: 'Shares',
+    label: settings.t('shares'),
     key: '/shares',
     icon: () => h(ShareOutline),
   },
-]
+  {
+    label: settings.t('settings'),
+    key: '/settings',
+    icon: () => h(SettingsOutline),
+  },
+])
 
 function handleMenuUpdate(key: string) {
   router.push(key)
@@ -38,11 +45,27 @@ function handleMenuUpdate(key: string) {
         :value="router.currentRoute.value.path"
         :options="menuOptions"
         mode="horizontal"
+        responsive
         @update:value="handleMenuUpdate"
       />
     </NLayoutHeader>
     <NLayoutContent :style="{ height: `calc(100vh - ${HEADER_HEIGHT}px)`, overflowY: 'auto' }">
-      <router-view />
+      <div class="layout-content">
+        <router-view />
+      </div>
     </NLayoutContent>
   </NLayout>
 </template>
+
+<style scoped>
+.layout-content {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .layout-content {
+    padding: 0 4px;
+  }
+}
+</style>

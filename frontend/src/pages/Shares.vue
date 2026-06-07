@@ -1,39 +1,41 @@
 <script setup lang="ts">
-import { onMounted, h } from 'vue'
+import { computed, onMounted, h } from 'vue'
 import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
 import { TrashOutline, LinkOutline } from '@vicons/ionicons5'
 import { useShareStore } from '@/stores/shareStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { ShareRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
 const store = useShareStore()
+const settings = useSettingsStore()
 const message = useMessage()
 
 onMounted(() => store.loadShares())
 
 function copyToken(token: string) {
   navigator.clipboard.writeText(`${window.location.origin}/s/${token}`)
-  message.success('Link copied')
+  message.success(settings.t('shareLinkCopied'))
 }
 
 async function handleRevoke(share: ShareRecord) {
   try {
     await store.revoke(share.id)
-    message.success('Share revoked')
+    message.success(settings.t('revoke'))
   } catch {
-    message.error('Failed to revoke')
+    message.error(settings.t('failedToRevoke'))
   }
 }
 
-const columns: DataTableColumn<ShareRecord>[] = [
-  { title: 'File', key: 'fileName' },
+const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
+  { title: settings.t('file'), key: 'fileName' },
   {
-    title: 'Type',
+    title: settings.t('type'),
     key: 'fileType',
     width: 80,
   },
   {
-    title: 'Share Link',
+    title: settings.t('shareLink'),
     key: 'token',
     width: 280,
     render(row) {
@@ -48,26 +50,26 @@ const columns: DataTableColumn<ShareRecord>[] = [
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => copyToken(row.token) }, () =>
               h(NIcon, null, () => h(LinkOutline)),
             ),
-          default: () => 'Copy link',
+          default: () => settings.t('copy'),
         }),
       ])
     },
   },
   {
-    title: 'Expires',
+    title: settings.t('expires'),
     key: 'expiresAt',
     width: 160,
     render(row) {
       const expiresAt = row.expiresAt
-      if (!expiresAt) return h(NTag, { size: 'small', type: 'info' }, () => 'Never')
+      if (!expiresAt) return h(NTag, { size: 'small', type: 'info' }, () => settings.t('never'))
       const expired = new Date(expiresAt) < new Date()
       return h(NTag, { size: 'small', type: expired ? 'error' : 'warning' }, () =>
-        expired ? 'Expired' : new Date(expiresAt).toLocaleDateString(),
+        expired ? settings.t('expired') : new Date(expiresAt).toLocaleDateString(),
       )
     },
   },
   {
-    title: 'Created',
+    title: settings.t('created'),
     key: 'createdAt',
     width: 160,
     render(row) {
@@ -75,7 +77,7 @@ const columns: DataTableColumn<ShareRecord>[] = [
     },
   },
   {
-    title: 'Actions',
+    title: settings.t('actions'),
     key: 'actions',
     width: 100,
     render(row) {
@@ -83,23 +85,23 @@ const columns: DataTableColumn<ShareRecord>[] = [
         NPopconfirm,
         { onPositiveClick: () => handleRevoke(row) },
         {
-          default: () => 'Revoke this share link?',
+          default: () => settings.t('revokeConfirm'),
           trigger: () =>
             h(NTooltip, null, {
               trigger: () =>
                 h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
-              default: () => 'Revoke',
+              default: () => settings.t('revoke'),
             }),
         },
       )
     },
   },
-]
+])
 </script>
 
 <template>
   <div style="padding: 16px">
-    <h2 style="margin-top: 0">Share Links</h2>
+    <h2 style="margin-top: 0">{{ settings.t('shareLinks') }}</h2>
     <NSpin :show="store.loading">
       <NDataTable
         v-if="store.shares.length > 0"
@@ -108,7 +110,7 @@ const columns: DataTableColumn<ShareRecord>[] = [
         :bordered="false"
         :single-line="false"
       />
-      <NEmpty v-else description="No share links" />
+      <NEmpty v-else :description="settings.t('noShareLinks')" />
     </NSpin>
   </div>
 </template>

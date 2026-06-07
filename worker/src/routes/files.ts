@@ -21,6 +21,14 @@ files.get('/search', async (c) => {
   return c.json(items)
 })
 
+files.post('/:id/copy', async (c) => {
+  const body = await c.req.json<{ parentId?: string | null }>()
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const item = await svc.copy(c.req.param('id'), body.parentId ?? null)
+  if (!item) return c.json({ error: 'Not found' }, 404)
+  return c.json(item, 201)
+})
+
 files.get('/:id', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const item = await svc.get(c.req.param('id'))
@@ -63,8 +71,12 @@ files.get('/:id/download', async (c) => {
 files.patch('/:id', async (c) => {
   const body = await c.req.json<{ name?: string; parentId?: string | null }>()
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
-  const item = await svc.update(c.req.param('id'), body)
-  return c.json(item)
+  try {
+    const item = await svc.update(c.req.param('id'), body)
+    return c.json(item)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
 })
 
 files.delete('/:id', async (c) => {

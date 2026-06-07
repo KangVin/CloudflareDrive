@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { onMounted, h } from 'vue'
+import { computed, onMounted, h } from 'vue'
 import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NTooltip, useMessage } from 'naive-ui'
 import { ArrowUndoOutline, TrashOutline } from '@vicons/ionicons5'
 import { useTrashStore } from '@/stores/trashStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { formatSize } from '@/utils/format'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
 const store = useTrashStore()
+const settings = useSettingsStore()
 const message = useMessage()
 
 onMounted(() => store.loadTrashed())
@@ -15,42 +17,44 @@ onMounted(() => store.loadTrashed())
 async function handleRestore(file: FileRecord) {
   try {
     await store.restore(file.id)
-    message.success('Restored')
+    message.success(settings.t('restored'))
   } catch {
-    message.error('Failed to restore')
+    message.error(settings.t('failedToRestore'))
   }
 }
 
 async function handlePermanentDelete(file: FileRecord) {
   try {
     await store.permanentDelete(file.id)
-    message.success('Permanently deleted')
+    message.success(settings.t('deletePermanently'))
   } catch {
-    message.error('Failed to delete')
+    message.error(settings.t('failedToDelete'))
   }
 }
 
-const columns: DataTableColumn<FileRecord>[] = [
-  { title: 'Name', key: 'name' },
+const columns = computed<DataTableColumn<FileRecord>[]>(() => [
+  { title: settings.t('name'), key: 'name', sorter: true },
   {
-    title: 'Size',
+    title: settings.t('size'),
     key: 'size',
     width: 100,
+    sorter: (a, b) => a.size - b.size,
     render(row) {
       return row.type === 'folder' ? '-' : formatSize(row.size)
     },
   },
-  { title: 'Type', key: 'type', width: 80 },
+  { title: settings.t('type'), key: 'type', width: 80, sorter: true },
   {
-    title: 'Deleted at',
+    title: settings.t('deletedAt'),
     key: 'updatedAt',
     width: 180,
+    sorter: (a, b) => a.updatedAt.localeCompare(b.updatedAt),
     render(row) {
       return new Date(row.updatedAt).toLocaleString()
     },
   },
   {
-    title: 'Actions',
+    title: settings.t('actions'),
     key: 'actions',
     width: 140,
     render(row) {
@@ -60,30 +64,30 @@ const columns: DataTableColumn<FileRecord>[] = [
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => handleRestore(row) }, () =>
               h(NIcon, null, () => h(ArrowUndoOutline)),
             ),
-          default: () => 'Restore',
+          default: () => settings.t('restore'),
         }),
         h(
           NPopconfirm,
           { onPositiveClick: () => handlePermanentDelete(row) },
           {
-            default: () => 'Delete permanently?',
+            default: () => settings.t('deletePermanentlyConfirm'),
             trigger: () =>
               h(NTooltip, null, {
                 trigger: () =>
                   h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
-                default: () => 'Delete',
+                default: () => settings.t('delete'),
               }),
           },
         ),
       ])
     },
   },
-]
+])
 </script>
 
 <template>
   <div style="padding: 16px">
-    <h2 style="margin-top: 0">Trash</h2>
+    <h2 style="margin-top: 0">{{ settings.t('trash') }}</h2>
     <NSpin :show="store.loading">
       <NDataTable
         v-if="store.files.length > 0"
@@ -92,7 +96,7 @@ const columns: DataTableColumn<FileRecord>[] = [
         :bordered="false"
         :single-line="false"
       />
-      <NEmpty v-else description="Trash is empty" />
+      <NEmpty v-else :description="settings.t('noFilesYet')" />
     </NSpin>
   </div>
 </template>

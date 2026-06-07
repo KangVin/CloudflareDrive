@@ -4,10 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { NSpin, NButton, NEmpty, NIcon } from 'naive-ui'
 import { DocumentOutline, DownloadOutline, FolderOpenOutline } from '@vicons/ionicons5'
 import { getPublicShare } from '@/api/shares'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { PublicShareResult } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
+const settings = useSettingsStore()
 const loading = ref(true)
 const error = ref<string | null>(null)
 const data = ref<PublicShareResult | null>(null)
@@ -17,7 +19,7 @@ onMounted(async () => {
   try {
     data.value = await getPublicShare(token)
   } catch {
-    error.value = 'Share link not found or has expired'
+    error.value = settings.t('shareNotFoundOrExpired')
   } finally {
     loading.value = false
   }
@@ -40,7 +42,7 @@ onMounted(async () => {
             <template #icon
               ><NIcon><DownloadOutline /></NIcon
             ></template>
-            Download
+            {{ settings.t('download') }}
           </NButton>
         </template>
         <template v-else>
@@ -59,9 +61,9 @@ onMounted(async () => {
           </div>
         </template>
       </div>
-      <NEmpty v-else-if="!loading" :description="error ?? 'No content'">
+      <NEmpty v-else-if="!loading" :description="error ?? settings.t('noContent')">
         <template #extra>
-          <NButton @click="router.push('/')">Go Home</NButton>
+          <NButton @click="router.push('/')">{{ settings.t('goHome') }}</NButton>
         </template>
       </NEmpty>
     </NSpin>

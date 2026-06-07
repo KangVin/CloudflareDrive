@@ -35,6 +35,16 @@ export async function updateFile(id: string, data: { name?: string; parentId?: s
   return res.json()
 }
 
+export async function copyFile(id: string, parentId?: string | null): Promise<FileRecord> {
+  const res = await fetch(`${BASE}/${id}/copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentId }),
+  })
+  if (!res.ok) throw new Error('Failed to copy file')
+  return res.json()
+}
+
 export async function trashFile(id: string): Promise<void> {
   const res = await fetch(`${BASE}/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to trash file')

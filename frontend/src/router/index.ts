@@ -25,6 +25,11 @@ const router = createRouter({
       component: () => import('@/pages/Shares.vue'),
     },
     {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/pages/Settings.vue'),
+    },
+    {
       path: '/s/:token',
       name: 'shared-view',
       component: () => import('@/pages/SharedView.vue'),

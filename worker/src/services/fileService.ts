@@ -46,7 +46,50 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
   }
 
   async function update(id: string, input: UpdateFileInput): Promise<FileRecord> {
+    if (input.parentId !== undefined && (await createsFolderCycle(id, input.parentId))) {
+      throw new Error('Cannot move a folder into itself or its descendants')
+    }
     return await fileRepo.update(id, input)
+  }
+
+  async function createsFolderCycle(id: string, parentId: string | null): Promise<boolean> {
+    if (parentId === null) return false
+    const file = await fileRepo.findById(id)
+    if (!file || file.type !== 'folder') return false
+    let currentId: string | null = parentId
+    while (currentId) {
+      if (currentId === id) return true
+      const current = await fileRepo.findById(currentId)
+      currentId = current?.parentId ?? null
+    }
+    return false
+  }
+
+  async function copy(id: string, parentId: string | null): Promise<FileRecord | null> {
+    const file = await fileRepo.findById(id)
+    if (!file || file.isTrashed) return null
+    if (file.type === 'folder') {
+      const copiedFolder = await createFolder(file.name, parentId)
+      const children = await fileRepo.findByParent(file.id)
+      for (const child of children) {
+        await copy(child.id, copiedFolder.id)
+      }
+      return copiedFolder
+    }
+    if (!file.r2Key) return null
+    const obj = await storageRepo.download(file.r2Key)
+    if (!obj || !obj.body) return null
+    const r2Key = `uploads/${crypto.randomUUID()}/${file.name}`
+    await storageRepo.upload(r2Key, obj.body)
+    const input: CreateFileInput = {
+      name: file.name,
+      parentId,
+      type: 'file',
+      mimeType: file.mimeType,
+      size: file.size,
+      r2Key,
+    }
+    return await fileRepo.create(input)
   }
 
   async function trash(id: string): Promise<void> {
@@ -113,5 +156,5 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     return await fileRepo.search(query)
   }
 
-  return { list, get, createFolder, upload, update, trash, restore, listTrashed, permanentDelete, search }
+  return { list, get, createFolder, upload, update, copy, trash, restore, listTrashed, permanentDelete, search }
 }

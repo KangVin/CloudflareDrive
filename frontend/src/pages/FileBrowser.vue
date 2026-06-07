@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
@@ -15,8 +15,10 @@ import {
   NUpload,
   NSelect,
   NTooltip,
+  NDropdown,
   useMessage,
   type UploadCustomRequestOptions,
+  type DropdownOption,
 } from 'naive-ui'
 import {
   FolderOpenOutline,
@@ -31,8 +33,9 @@ import {
   ShareOutline,
 } from '@vicons/ionicons5'
 import { useFileStore } from '@/stores/fileStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { searchFiles } from '@/api/search'
-import { listFiles, updateFile } from '@/api/files'
+import { copyFile, listFiles, trashFile, updateFile } from '@/api/files'
 import { createShare } from '@/api/shares'
 import { formatSize } from '@/utils/format'
 import type { FileRecord } from '@/types'
@@ -41,7 +44,11 @@ import type { DataTableColumn } from 'naive-ui'
 const route = useRoute()
 const router = useRouter()
 const store = useFileStore()
+const settings = useSettingsStore()
 const message = useMessage()
+
+const DEFAULT_PAGE_SIZE = 50
+const tablePagination = { pageSize: DEFAULT_PAGE_SIZE }
 
 const loading = ref(false)
 const showCreateModal = ref(false)
@@ -49,6 +56,120 @@ const newFolderName = ref('')
 const renameTarget = ref<FileRecord | null>(null)
 const showRenameModal = ref(false)
 const renameName = ref('')
+
+const checkedRowKeys = ref<string[]>([])
+const selectedFiles = computed(() => displayedFiles.value.filter((file) => checkedRowKeys.value.includes(file.id)))
+const clipboardItems = ref<FileRecord[]>([])
+const clipboardMode = ref<'copy' | 'cut' | null>(null)
+const contextMenuRow = ref<FileRecord | null>(null)
+const showContextMenu = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+
+function handleContextMenu(e: MouseEvent, row: FileRecord) {
+  e.preventDefault()
+  contextMenuRow.value = row
+  contextMenuX.value = e.clientX
+  contextMenuY.value = e.clientY
+  showContextMenu.value = true
+}
+
+function handleContextMenuSelect(key: string) {
+  const file = contextMenuRow.value
+  if (!file) return
+  showContextMenu.value = false
+  if (key === 'open') {
+    if (file.type === 'folder') navigateToFolder(file.id)
+  } else if (key === 'rename') {
+    openRename(file)
+  } else if (key === 'move') {
+    openMoveModal(file)
+  } else if (key === 'share') {
+    openShareModal(file)
+  } else if (key === 'copy') {
+    checkedRowKeys.value = [file.id]
+    copyFilesToClipboard([file])
+  } else if (key === 'cut') {
+    checkedRowKeys.value = [file.id]
+    cutFilesToClipboard([file])
+  } else if (key === 'paste') {
+    pasteClipboardItems()
+  } else if (key === 'delete') {
+    handleDelete(file)
+  } else if (key === 'preview' && file.type === 'file') {
+    openPreview(file)
+  }
+}
+
+const contextMenuOptions = computed<DropdownOption[]>(() => [
+  { label: settings.t('open'), key: 'open' },
+  { label: settings.t('preview'), key: 'preview' },
+  { type: 'divider' },
+  { label: settings.t('rename'), key: 'rename' },
+  { label: settings.t('move'), key: 'move' },
+  { label: settings.t('share'), key: 'share' },
+  { type: 'divider' },
+  { label: settings.t('copy'), key: 'copy' },
+  { label: settings.t('cut'), key: 'cut' },
+  { label: settings.t('pasteHere'), key: 'paste' },
+  { type: 'divider' },
+  { label: settings.t('delete'), key: 'delete' },
+])
+
+function handleKeydown(e: KeyboardEvent) {
+  if (
+    showCreateModal.value ||
+    showRenameModal.value ||
+    showMoveModal.value ||
+    showShareModal.value ||
+    showPreviewModal.value
+  )
+    return
+  if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+    e.preventDefault()
+    checkedRowKeys.value = displayedFiles.value.map((file) => file.id)
+    return
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+    e.preventDefault()
+    copySelectedToClipboard()
+    return
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === 'x') {
+    e.preventDefault()
+    cutSelectedToClipboard()
+    return
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === 'v') {
+    e.preventDefault()
+    pasteClipboardItems()
+    return
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && checkedRowKeys.value.length > 1) {
+    if (!isSearchActive.value) handleBatchDelete()
+    return
+  }
+  if (checkedRowKeys.value.length !== 1) return
+  const file = displayedFiles.value.find((f) => f.id === checkedRowKeys.value[0])
+  if (!file) return
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (!isSearchActive.value) handleDelete(file)
+  } else if (e.key === 'F2') {
+    e.preventDefault()
+    openRename(file)
+  } else if (e.key === 'Enter') {
+    if (file.type === 'folder') navigateToFolder(file.id)
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+  init()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
 
 const searchQuery = ref('')
 const searchResults = ref<FileRecord[]>([])
@@ -94,14 +215,14 @@ async function handleDrop(e: DragEvent) {
       const res = await fetch(uploadUrl, { method: 'POST', body: form })
       if (!res.ok) throw new Error('Upload failed')
     } catch {
-      message.error(`Failed to upload: ${file.name}`)
+      message.error(`${settings.t('failedToUpload')}: ${file.name}`)
     }
   }
-  message.success('Uploaded')
+  message.success(settings.t('uploaded'))
   await store.loadFolder(store.currentFolderId)
 }
 
-const moveTarget = ref<FileRecord | null>(null)
+const moveTargets = ref<FileRecord[]>([])
 const showMoveModal = ref(false)
 const moveCurrentFolderId = ref<string | null>(null)
 const moveFolderItems = ref<FileRecord[]>([])
@@ -153,7 +274,7 @@ async function openPreview(file: FileRecord) {
       previewContent.value = null
     }
   } catch {
-    message.error('Failed to load preview')
+    message.error(settings.t('failedToLoadPreview'))
   } finally {
     previewLoading.value = false
   }
@@ -181,11 +302,11 @@ async function handleCreateShare() {
       expiresAt = d.toISOString()
     }
     await createShare(shareTarget.value.id, expiresAt)
-    message.success('Share link created')
+    message.success(settings.t('shareLinkCreated'))
     showShareModal.value = false
     shareTarget.value = null
   } catch {
-    message.error('Failed to create share link')
+    message.error(settings.t('failedToCreateShareLink'))
   } finally {
     sharingLoading.value = false
   }
@@ -209,7 +330,6 @@ async function init() {
   }
 }
 
-onMounted(init)
 watch(() => route.params.id, init)
 
 async function handleSearch() {
@@ -222,7 +342,7 @@ async function handleSearch() {
   try {
     searchResults.value = await searchFiles(q)
   } catch {
-    message.error('Search failed')
+    message.error(settings.t('searchFailed'))
   } finally {
     isSearching.value = false
   }
@@ -257,9 +377,9 @@ async function handleCreateFolder() {
     await store.createFolder(newFolderName.value.trim())
     newFolderName.value = ''
     showCreateModal.value = false
-    message.success('Folder created')
+    message.success(settings.t('create'))
   } catch {
-    message.error('Failed to create folder')
+    message.error(settings.t('failedToCreateFolder'))
   }
 }
 
@@ -275,25 +395,93 @@ async function handleRename() {
     await store.renameFile(renameTarget.value.id, renameName.value.trim())
     showRenameModal.value = false
     renameTarget.value = null
-    message.success('Renamed')
+    message.success(settings.t('renamed'))
   } catch {
-    message.error('Failed to rename')
+    message.error(settings.t('failedToRename'))
   }
 }
 
 async function handleDelete(file: FileRecord) {
   try {
     await store.deleteFile(file.id)
-    message.success('Moved to trash')
+    checkedRowKeys.value = checkedRowKeys.value.filter((id) => id !== file.id)
+    message.success(settings.t('movedToTrash'))
   } catch {
-    message.error('Failed to delete')
+    message.error(settings.t('failedToDelete'))
+  }
+}
+
+async function handleBatchDelete() {
+  if (selectedFiles.value.length === 0) return
+  try {
+    for (const file of selectedFiles.value) {
+      await trashFile(file.id)
+    }
+    checkedRowKeys.value = []
+    message.success(settings.t('movedSelectedToTrash'))
+    await init()
+  } catch {
+    message.error(settings.t('failedToDeleteSelectedFiles'))
+  }
+}
+
+function copySelectedToClipboard() {
+  if (selectedFiles.value.length === 0) return
+  copyFilesToClipboard(selectedFiles.value)
+}
+
+function cutSelectedToClipboard() {
+  if (selectedFiles.value.length === 0) return
+  cutFilesToClipboard(selectedFiles.value)
+}
+
+function copyFilesToClipboard(files: FileRecord[]) {
+  clipboardItems.value = [...files]
+  clipboardMode.value = 'copy'
+  message.success(settings.t('copiedToClipboard'))
+}
+
+function cutFilesToClipboard(files: FileRecord[]) {
+  clipboardItems.value = [...files]
+  clipboardMode.value = 'cut'
+  message.success(settings.t('cutToClipboard'))
+}
+
+async function pasteClipboardItems() {
+  if (!clipboardMode.value || clipboardItems.value.length === 0 || isSearchActive.value) return
+  try {
+    for (const file of clipboardItems.value) {
+      if (clipboardMode.value === 'copy') {
+        await copyFile(file.id, store.currentFolderId)
+      } else {
+        await updateFile(file.id, { parentId: store.currentFolderId })
+      }
+    }
+    if (clipboardMode.value === 'cut') {
+      clipboardItems.value = []
+      clipboardMode.value = null
+    }
+    checkedRowKeys.value = []
+    message.success(settings.t('pasted'))
+    await init()
+  } catch {
+    message.error(settings.t('failedToPaste'))
   }
 }
 
 function openMoveModal(file: FileRecord) {
-  moveTarget.value = file
+  moveTargets.value = [file]
   moveCurrentFolderId.value = null
-  moveBreadcrumbs.value = [{ id: null, name: 'Root' }]
+  moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
+  loadMoveFolders(null)
+  showMoveModal.value = true
+}
+
+function openBatchMoveModal() {
+  if (selectedFiles.value.length === 0) return
+  moveTargets.value = [...selectedFiles.value]
+  moveCurrentFolderId.value = null
+  moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
   loadMoveFolders(null)
   showMoveModal.value = true
 }
@@ -304,7 +492,7 @@ async function loadMoveFolders(parentId: string | null) {
     const all = await listFiles(parentId ?? undefined)
     moveFolderItems.value = all.filter((f) => f.type === 'folder')
   } catch {
-    message.error('Failed to load folders')
+    message.error(settings.t('failedToLoadFolders'))
   } finally {
     moveLoadingFolders.value = false
   }
@@ -312,7 +500,7 @@ async function loadMoveFolders(parentId: string | null) {
 
 function navigateMoveFolder(id: string | null) {
   if (id === null) {
-    moveBreadcrumbs.value = [{ id: null, name: 'Root' }]
+    moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
     moveCurrentFolderId.value = null
     loadMoveFolders(null)
     return
@@ -329,39 +517,58 @@ function navigateMoveFolder(id: string | null) {
 }
 
 async function handleMove() {
-  if (!moveTarget.value) return
+  if (moveTargets.value.length === 0) return
   try {
-    await updateFile(moveTarget.value.id, { parentId: moveCurrentFolderId.value })
-    message.success('Moved successfully')
+    for (const file of moveTargets.value) {
+      await updateFile(file.id, { parentId: moveCurrentFolderId.value })
+    }
+    message.success(settings.t('movedSuccessfully'))
     showMoveModal.value = false
-    moveTarget.value = null
+    moveTargets.value = []
+    checkedRowKeys.value = []
     await init()
   } catch {
-    message.error('Failed to move')
+    message.error(settings.t('failedToMove'))
   }
 }
 
-async function handleUpload(options: UploadCustomRequestOptions) {
-  try {
-    const form = new FormData()
-    form.append('file', options.file.file as File)
-    const parentId = store.currentFolderId
-    const url = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
-    const res = await fetch(url, { method: 'POST', body: form })
-    if (!res.ok) throw new Error('Upload failed')
-    options.onFinish?.()
-    message.success('Uploaded')
-    await store.loadFolder(store.currentFolderId)
-  } catch {
+function handleUpload(options: UploadCustomRequestOptions) {
+  const form = new FormData()
+  form.append('file', options.file.file as File)
+  const parentId = store.currentFolderId
+  const url = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
+  const xhr = new XMLHttpRequest()
+  xhr.open('POST', url)
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      options.onProgress?.({ percent: Math.round((e.loaded / e.total) * 100) })
+    }
+  }
+  xhr.onload = async () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      options.onFinish?.()
+      message.success(settings.t('uploaded'))
+      await store.loadFolder(store.currentFolderId)
+    } else {
+      options.onError?.()
+      message.error(settings.t('failedToUpload'))
+    }
+  }
+  xhr.onerror = () => {
     options.onError?.()
-    message.error('Upload failed')
+    message.error(settings.t('failedToUpload'))
   }
+  xhr.send(form)
 }
 
-const columns: DataTableColumn<FileRecord>[] = [
+const columns = computed<DataTableColumn<FileRecord>[]>(() => [
   {
-    title: 'Name',
+    type: 'selection',
+  },
+  {
+    title: settings.t('name'),
     key: 'name',
+    sorter: true,
     render(row) {
       return row.type === 'folder'
         ? h(
@@ -379,28 +586,31 @@ const columns: DataTableColumn<FileRecord>[] = [
     },
   },
   {
-    title: 'Size',
+    title: settings.t('size'),
     key: 'size',
     width: 100,
+    sorter: (a, b) => a.size - b.size,
     render(row) {
       return row.type === 'folder' ? '-' : formatSize(row.size)
     },
   },
   {
-    title: 'Type',
+    title: settings.t('type'),
     key: 'type',
     width: 80,
+    sorter: true,
   },
   {
-    title: 'Created',
+    title: settings.t('created'),
     key: 'createdAt',
     width: 180,
+    sorter: (a, b) => a.createdAt.localeCompare(b.createdAt),
     render(row) {
       return new Date(row.createdAt).toLocaleString()
     },
   },
   {
-    title: 'Actions',
+    title: settings.t('actions'),
     key: 'actions',
     width: 220,
     render(row) {
@@ -410,14 +620,14 @@ const columns: DataTableColumn<FileRecord>[] = [
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => openRename(row) }, () =>
               h(NIcon, null, () => h(CreateOutline)),
             ),
-          default: () => 'Rename',
+          default: () => settings.t('rename'),
         }),
         h(NTooltip, null, {
           trigger: () =>
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => openMoveModal(row) }, () =>
               h(NIcon, null, () => h(MoveOutline)),
             ),
-          default: () => 'Move',
+          default: () => settings.t('move'),
         }),
         row.type === 'file'
           ? h(NTooltip, null, {
@@ -425,7 +635,7 @@ const columns: DataTableColumn<FileRecord>[] = [
                 h(NButton, { size: 'tiny', quaternary: true, onClick: () => openPreview(row) }, () =>
                   h(NIcon, null, () => h(EyeOutline)),
                 ),
-              default: () => 'Preview',
+              default: () => settings.t('preview'),
             })
           : null,
         h(NTooltip, null, {
@@ -433,25 +643,25 @@ const columns: DataTableColumn<FileRecord>[] = [
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => openShareModal(row) }, () =>
               h(NIcon, null, () => h(ShareOutline)),
             ),
-          default: () => 'Share',
+          default: () => settings.t('share'),
         }),
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
           {
-            default: () => 'Move to trash?',
+            default: () => settings.t('moveToTrashConfirm'),
             trigger: () =>
               h(NTooltip, null, {
                 trigger: () =>
                   h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
-                default: () => 'Delete',
+                default: () => settings.t('delete'),
               }),
           },
         ),
       ])
     },
   },
-]
+])
 </script>
 
 <template>
@@ -477,23 +687,23 @@ const columns: DataTableColumn<FileRecord>[] = [
         color: #18a058;
       "
     >
-      Drop files to upload
+      {{ settings.t('dropFilesToUpload') }}
     </div>
     <NSpace vertical size="large">
       <NSpace align="center" justify="space-between">
         <NBreadcrumb v-if="!isSearchActive">
           <NBreadcrumbItem v-for="crumb in store.currentBreadcrumbs" :key="crumb.id ?? 'root'">
             <a v-if="crumb.id !== store.currentFolderId" href="#" @click.prevent="navigateToBreadcrumb(crumb.id)">
-              {{ crumb.name }}
+              {{ crumb.id === null ? settings.t('root') : crumb.name }}
             </a>
-            <span v-else>{{ crumb.name }}</span>
+            <span v-else>{{ crumb.id === null ? settings.t('root') : crumb.name }}</span>
           </NBreadcrumbItem>
         </NBreadcrumb>
-        <span v-else style="font-weight: 600">Search results</span>
+        <span v-else style="font-weight: 600">{{ settings.t('searchResults') }}</span>
         <NSpace>
           <NInput
             v-model:value="searchQuery"
-            placeholder="Search files..."
+            :placeholder="settings.t('searchFiles')"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -506,57 +716,102 @@ const columns: DataTableColumn<FileRecord>[] = [
               <NIcon style="cursor: pointer" @click="clearSearch"><CloseOutline /></NIcon>
             </template>
           </NInput>
-          <NUpload v-if="!isSearchActive" :custom-request="handleUpload" :show-file-list="false" accept="*">
+          <NUpload
+            v-if="!isSearchActive"
+            :custom-request="handleUpload"
+            :show-file-list="false"
+            accept="*"
+            multiple
+            show-progress
+          >
             <NButton>
               <template #icon
                 ><NIcon><CloudUploadOutline /></NIcon
               ></template>
-              Upload
+              {{ settings.t('upload') }}
             </NButton>
           </NUpload>
           <NButton v-if="!isSearchActive" @click="showCreateModal = true">
             <template #icon
               ><NIcon><CreateOutline /></NIcon
             ></template>
-            New Folder
+            {{ settings.t('newFolder') }}
           </NButton>
         </NSpace>
       </NSpace>
 
+      <NSpace v-if="checkedRowKeys.length > 0" align="center">
+        <span>{{ checkedRowKeys.length }} {{ settings.t('selected') }}</span>
+        <NButton size="small" @click="copySelectedToClipboard">{{ settings.t('copy') }}</NButton>
+        <NButton size="small" @click="cutSelectedToClipboard">{{ settings.t('cut') }}</NButton>
+        <NButton size="small" @click="openBatchMoveModal">{{ settings.t('move') }}</NButton>
+        <NPopconfirm @positive-click="handleBatchDelete">
+          <template #trigger>
+            <NButton size="small" type="error">{{ settings.t('delete') }}</NButton>
+          </template>
+          {{ settings.t('moveSelectedToTrashConfirm') }}
+        </NPopconfirm>
+      </NSpace>
+
+      <NSpace v-if="clipboardMode" align="center">
+        <span
+          >{{ clipboardItems.length }}
+          {{ clipboardMode === 'copy' ? settings.t('itemCopied') : settings.t('itemCut') }}</span
+        >
+        <NButton size="small" :disabled="isSearchActive" @click="pasteClipboardItems">{{
+          settings.t('pasteHere')
+        }}</NButton>
+      </NSpace>
+
       <NSpin :show="loading || isSearching">
-        <NDataTable
-          v-if="displayedFiles.length > 0"
-          :columns="columns"
-          :data="displayedFiles"
-          :bordered="false"
-          :single-line="false"
-        />
-        <NEmpty v-else description="No files yet" />
+        <div v-if="displayedFiles.length > 0" class="file-table">
+          <NDataTable
+            :columns="columns"
+            :data="displayedFiles"
+            :bordered="false"
+            :single-line="false"
+            :row-key="(row: FileRecord) => row.id"
+            :row-props="(row: FileRecord) => ({ onContextmenu: (e: MouseEvent) => handleContextMenu(e, row) })"
+            :pagination="tablePagination"
+            v-model:checked-row-keys="checkedRowKeys"
+          />
+        </div>
+        <NEmpty v-else :description="settings.t('noFilesYet')" />
       </NSpin>
+      <NDropdown
+        trigger="manual"
+        placement="bottom-start"
+        :show="showContextMenu"
+        :x="contextMenuX"
+        :y="contextMenuY"
+        :options="contextMenuOptions"
+        @select="handleContextMenuSelect"
+        @clickoutside="showContextMenu = false"
+      />
     </NSpace>
 
-    <NModal v-model:show="showCreateModal" title="New Folder" preset="card" style="width: 360px">
-      <NInput v-model:value="newFolderName" placeholder="Folder name" @keyup.enter="handleCreateFolder" />
+    <NModal v-model:show="showCreateModal" :title="settings.t('newFolder')" preset="card" style="width: 360px">
+      <NInput v-model:value="newFolderName" :placeholder="settings.t('folderName')" @keyup.enter="handleCreateFolder" />
       <template #footer>
-        <NButton type="primary" @click="handleCreateFolder">Create</NButton>
+        <NButton type="primary" @click="handleCreateFolder">{{ settings.t('create') }}</NButton>
       </template>
     </NModal>
 
-    <NModal v-model:show="showRenameModal" title="Rename" preset="card" style="width: 360px">
-      <NInput v-model:value="renameName" placeholder="New name" @keyup.enter="handleRename" />
+    <NModal v-model:show="showRenameModal" :title="settings.t('rename')" preset="card" style="width: 360px">
+      <NInput v-model:value="renameName" :placeholder="settings.t('name')" @keyup.enter="handleRename" />
       <template #footer>
-        <NButton type="primary" @click="handleRename">Rename</NButton>
+        <NButton type="primary" @click="handleRename">{{ settings.t('rename') }}</NButton>
       </template>
     </NModal>
 
-    <NModal v-model:show="showMoveModal" title="Move to..." preset="card" style="width: 420px">
+    <NModal v-model:show="showMoveModal" :title="settings.t('moveTo')" preset="card" style="width: 420px">
       <NSpace vertical>
         <NBreadcrumb>
           <NBreadcrumbItem v-for="crumb in moveBreadcrumbs" :key="crumb.id ?? 'root'">
             <a v-if="crumb.id !== moveCurrentFolderId" href="#" @click.prevent="navigateMoveFolder(crumb.id)">
-              {{ crumb.name }}
+              {{ crumb.id === null ? settings.t('root') : crumb.name }}
             </a>
-            <span v-else>{{ crumb.name }}</span>
+            <span v-else>{{ crumb.id === null ? settings.t('root') : crumb.name }}</span>
           </NBreadcrumbItem>
         </NBreadcrumb>
         <NSpin :show="moveLoadingFolders">
@@ -571,39 +826,43 @@ const columns: DataTableColumn<FileRecord>[] = [
               {{ folder.name }}
             </div>
           </div>
-          <NEmpty v-else description="No subfolders" />
+          <NEmpty v-else :description="settings.t('noSubfolders')" />
         </NSpin>
       </NSpace>
       <template #footer>
-        <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">Move here</NButton>
+        <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">{{
+          settings.t('moveHere')
+        }}</NButton>
       </template>
     </NModal>
 
-    <NModal v-model:show="showShareModal" title="Create Share Link" preset="card" style="width: 400px">
+    <NModal v-model:show="showShareModal" :title="settings.t('createShareLink')" preset="card" style="width: 400px">
       <p v-if="shareTarget" style="margin-top: 0">
-        Share <strong>{{ shareTarget.name }}</strong> via a public link
+        {{ settings.t('shareVerb') }} <strong>{{ shareTarget.name }}</strong> {{ settings.t('sharePublicLink') }}
       </p>
       <NSpace vertical>
-        <label>Expiry</label>
+        <label>{{ settings.t('expiry') }}</label>
         <NSelect
           v-model:value="shareExpiryDays"
           :options="[
-            { label: '1 day', value: 1 },
-            { label: '7 days', value: 7 },
-            { label: '30 days', value: 30 },
-            { label: 'Never', value: 0 },
+            { label: '1', value: 1 },
+            { label: '7', value: 7 },
+            { label: '30', value: 30 },
+            { label: settings.t('never'), value: 0 },
           ]"
-          placeholder="Select expiry..."
+          :placeholder="settings.t('expiry')"
         />
       </NSpace>
       <template #footer>
-        <NButton type="primary" :disabled="sharingLoading" @click="handleCreateShare">Create Link</NButton>
+        <NButton type="primary" :disabled="sharingLoading" @click="handleCreateShare">{{
+          settings.t('createLink')
+        }}</NButton>
       </template>
     </NModal>
 
     <NModal
       v-model:show="showPreviewModal"
-      :title="previewTarget?.name ?? 'Preview'"
+      :title="previewTarget?.name ?? settings.t('preview')"
       preset="card"
       style="width: 800px; max-height: 90vh"
       @update:show="
@@ -621,8 +880,16 @@ const columns: DataTableColumn<FileRecord>[] = [
           style="max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0"
           >{{ previewContent }}</pre
         >
-        <NEmpty v-else-if="!previewLoading" description="Preview not available for this file type" />
+        <NEmpty v-else-if="!previewLoading" :description="settings.t('previewNotAvailable')" />
       </NSpin>
     </NModal>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 768px) {
+  .file-table {
+    overflow-x: auto;
+  }
+}
+</style>
