@@ -24,4 +24,7 @@
       "bucket_name": "cloudflare-drive-storage",
     },
   ],
+  "triggers": {
+    "crons": ["0 */6 * * *"],
+  },
 }

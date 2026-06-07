@@ -13,6 +13,8 @@ export interface UploadTask {
 
 const UPLOAD_DONE_PERCENT = 100
 const MAX_CONCURRENT_UPLOADS = 4
+const CHUNK_THRESHOLD = 50 * 1024 * 1024
+const CHUNK_SIZE = 5 * 1024 * 1024
 
 let globalInstance: ReturnType<typeof createUploadState> | null = null
 
@@ -75,6 +77,12 @@ function createUploadState() {
     taskId: string,
     onProgress?: (percent: number) => void,
   ): Promise<void> {
+    if (file.size > CHUNK_THRESHOLD) {
+      updateTask(taskId, { status: 'uploading', percent: 0 })
+      await uploadFileChunked(file, parentId, taskId, onProgress)
+      return
+    }
+
     updateTask(taskId, { status: 'hashing', percent: 0 })
     const hash = await computeFileHash(file)
 
@@ -108,6 +116,76 @@ function createUploadState() {
       xhr.onerror = () => reject(new Error('Upload failed'))
       xhr.send(form)
     })
+  }
+
+  async function uploadFileChunked(
+    file: File,
+    parentId: string | null,
+    taskId: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    const uploadId = crypto.randomUUID()
+    const chunkProgress = new Array<number>(totalChunks).fill(0)
+    const concurrency = Math.min(MAX_CONCURRENT_UPLOADS, totalChunks)
+
+    function emitProgress() {
+      const sum = chunkProgress.reduce((a, b) => a + b, 0)
+      onProgress?.(Math.round((sum / totalChunks) * UPLOAD_DONE_PERCENT))
+    }
+
+    const queue = Array.from({ length: totalChunks }, (_, i) => i)
+
+    async function worker() {
+      while (queue.length > 0) {
+        const i = queue.shift()!
+        const start = i * CHUNK_SIZE
+        const end = Math.min(start + CHUNK_SIZE, file.size)
+        const blob = file.slice(start, end)
+
+        await new Promise<void>((resolve, reject) => {
+          const form = new FormData()
+          form.append('uploadId', uploadId)
+          form.append('chunkIndex', String(i))
+          form.append('chunk', blob)
+          const xhr = new XMLHttpRequest()
+          xhr.open('POST', '/api/v1/files/upload/chunk')
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              chunkProgress[i] = e.loaded / e.total
+              emitProgress()
+            }
+          }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              chunkProgress[i] = 1
+              emitProgress()
+              resolve()
+            } else {
+              reject(new Error('Chunk upload failed'))
+            }
+          }
+          xhr.onerror = () => reject(new Error('Chunk upload failed'))
+          xhr.send(form)
+        })
+      }
+    }
+
+    const workers = Array.from({ length: concurrency }, () => worker())
+    await Promise.all(workers)
+
+    const res = await fetch(`/api/v1/files/upload/${uploadId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        totalChunks,
+        name: file.name,
+        parentId,
+        mimeType: file.type,
+      }),
+    })
+    if (!res.ok) throw new Error('Failed to complete chunked upload')
+    onProgress?.(UPLOAD_DONE_PERCENT)
   }
 
   async function uploadFiles(

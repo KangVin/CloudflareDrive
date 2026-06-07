@@ -36,8 +36,12 @@ watch(
         const mime = file.mimeType || ''
         if (IMAGE_TYPES.includes(mime)) {
           const blob = await res.blob()
-          if (!props.show || props.file?.id !== file.id) return
-          previewUrl.value = URL.createObjectURL(blob)
+          const blobUrl = URL.createObjectURL(blob)
+          if (!props.show || props.file?.id !== file.id) {
+            URL.revokeObjectURL(blobUrl)
+            return
+          }
+          previewUrl.value = blobUrl
         } else if (TEXT_TYPES.includes(mime) || mime.startsWith('text/')) {
           previewContent.value = await res.text()
         }

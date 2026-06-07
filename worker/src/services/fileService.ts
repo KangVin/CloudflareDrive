@@ -175,6 +175,64 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     }
   }
 
+  async function finalizeChunkedUpload(
+    uploadId: string,
+    totalChunks: number,
+    parentId: string | null,
+    name: string,
+    mimeType: string,
+  ): Promise<FileRecord> {
+    const r2Key = `uploads/${crypto.randomUUID()}/${name}`
+    const tempPrefix = `temp/${uploadId}/`
+
+    let totalSize = 0
+    for (let i = 0; i < totalChunks; i++) {
+      const obj = await storageRepo.download(`${tempPrefix}${i}`)
+      if (!obj) throw new Error(`Chunk ${i} not found`)
+      totalSize += obj.size
+    }
+
+    const fixed = new FixedLengthStream(totalSize)
+    const writer = fixed.writable.getWriter()
+
+    const pipe = (async () => {
+      try {
+        for (let i = 0; i < totalChunks; i++) {
+          const obj = await storageRepo.download(`${tempPrefix}${i}`)
+          if (!obj?.body) throw new Error(`Chunk ${i} not found`)
+          const reader = obj.body.getReader()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            await writer.write(value)
+          }
+        }
+        await writer.close()
+      } catch (e) {
+        await writer.abort(e)
+        throw e
+      }
+    })()
+
+    const [uploadResult, pipeResult] = await Promise.all([
+      storageRepo.upload(r2Key, fixed.readable).catch((e) => e),
+      pipe.catch((e) => e),
+    ])
+    if (uploadResult instanceof Error) throw uploadResult
+    if (pipeResult instanceof Error) throw pipeResult
+    await storageRepo.deleteChunks(tempPrefix, totalChunks)
+
+    const input: CreateFileInput = {
+      name,
+      parentId,
+      type: 'file',
+      mimeType,
+      size: totalSize,
+      r2Key,
+    }
+    return await fileRepo.create(input)
+  }
+
   async function checkHash(hash: string): Promise<FileRecord | null> {
     return await fileRepo.findByHash(hash)
   }
@@ -216,6 +274,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     permanentDelete,
     checkHash,
     instant,
+    finalizeChunkedUpload,
     search,
   }
 }

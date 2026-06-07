@@ -67,6 +67,44 @@ files.post('/', async (c) => {
   return c.json(item, 201)
 })
 
+files.post('/upload/chunk', async (c) => {
+  const form = await c.req.formData()
+  const uploadId = form.get('uploadId') as string
+  const chunkIndex = parseInt(form.get('chunkIndex') as string, 10)
+  const chunk = form.get('chunk') as File | null
+  if (!uploadId || isNaN(chunkIndex) || !chunk) return c.json({ error: 'Missing required fields' }, 400)
+  const storage = createStorageRepository(c.env.STORAGE)
+  await storage.upload(`temp/${uploadId}/${chunkIndex}`, chunk)
+  return c.json({ uploadId, chunkIndex, received: true })
+})
+
+files.post('/upload/:uploadId/complete', async (c) => {
+  try {
+    const body = await c.req.json<{
+      totalChunks: number
+      name: string
+      parentId?: string | null
+      mimeType?: string | null
+    }>()
+    const uploadId = c.req.param('uploadId')
+    if (!body.name || !Number.isInteger(body.totalChunks) || body.totalChunks < 1) {
+      return c.json({ error: 'Missing required fields' }, 400)
+    }
+    const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+    const item = await svc.finalizeChunkedUpload(
+      uploadId,
+      body.totalChunks,
+      body.parentId ?? null,
+      body.name,
+      body.mimeType ?? 'application/octet-stream',
+    )
+    return c.json(item, 201)
+  } catch (e) {
+    console.error('complete error:', e)
+    return c.json({ error: (e as Error).message }, 500)
+  }
+})
+
 files.post('/upload', async (c) => {
   const parentId = c.req.query('parentId') ?? null
   const form = await c.req.formData()
