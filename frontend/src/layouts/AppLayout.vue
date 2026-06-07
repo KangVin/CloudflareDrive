@@ -4,6 +4,7 @@ import { NLayout, NLayoutHeader, NLayoutContent, NMenu } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import type { MenuOption } from 'naive-ui'
 import { FolderOpenOutline, TrashOutline, ShareOutline } from '@vicons/ionicons5'
+import { HEADER_HEIGHT } from '@/utils/constants'
 
 const router = useRouter()
 
@@ -40,7 +41,7 @@ function handleMenuUpdate(key: string) {
         @update:value="handleMenuUpdate"
       />
     </NLayoutHeader>
-    <NLayoutContent style="height: calc(100vh - 64px); overflow-y: auto">
+    <NLayoutContent :style="{ height: `calc(100vh - ${HEADER_HEIGHT}px)`, overflowY: 'auto' }">
       <router-view />
     </NLayoutContent>
   </NLayout>

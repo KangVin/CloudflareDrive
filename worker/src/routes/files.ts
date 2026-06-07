@@ -13,6 +13,14 @@ files.get('/', async (c) => {
   return c.json(items)
 })
 
+files.get('/search', async (c) => {
+  const q = c.req.query('q')
+  if (!q) return c.json({ error: 'Query parameter q is required' }, 400)
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const items = await svc.search(q)
+  return c.json(items)
+})
+
 files.get('/:id', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const item = await svc.get(c.req.param('id'))

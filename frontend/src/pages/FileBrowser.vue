@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, h } from 'vue'
+import { ref, computed, onMounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
@@ -13,11 +13,25 @@ import {
   NSpin,
   NPopconfirm,
   NUpload,
+  NTooltip,
   useMessage,
   type UploadCustomRequestOptions,
 } from 'naive-ui'
-import { FolderOpenOutline, DocumentOutline, CreateOutline, TrashOutline, CloudUploadOutline } from '@vicons/ionicons5'
+import {
+  FolderOpenOutline,
+  DocumentOutline,
+  CreateOutline,
+  TrashOutline,
+  CloudUploadOutline,
+  SearchOutline,
+  CloseOutline,
+  MoveOutline,
+  EyeOutline,
+} from '@vicons/ionicons5'
 import { useFileStore } from '@/stores/fileStore'
+import { searchFiles } from '@/api/search'
+import { listFiles, updateFile } from '@/api/files'
+import { formatSize } from '@/utils/format'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
@@ -33,6 +47,123 @@ const renameTarget = ref<FileRecord | null>(null)
 const showRenameModal = ref(false)
 const renameName = ref('')
 
+const searchQuery = ref('')
+const searchResults = ref<FileRecord[]>([])
+const isSearching = ref(false)
+
+const isDragging = ref(false)
+let dragCounter = 0
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault()
+}
+
+function handleDragEnter(e: DragEvent) {
+  e.preventDefault()
+  dragCounter++
+  if (e.dataTransfer?.types.includes('Files')) {
+    isDragging.value = true
+  }
+}
+
+function handleDragLeave(e: DragEvent) {
+  e.preventDefault()
+  dragCounter--
+  if (dragCounter <= 0) {
+    dragCounter = 0
+    isDragging.value = false
+  }
+}
+
+async function handleDrop(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = false
+  dragCounter = 0
+  const files = e.dataTransfer?.files
+  if (!files || files.length === 0) return
+  const parentId = store.currentFolderId
+  const uploadUrl = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(uploadUrl, { method: 'POST', body: form })
+      if (!res.ok) throw new Error('Upload failed')
+    } catch {
+      message.error(`Failed to upload: ${file.name}`)
+    }
+  }
+  message.success('Uploaded')
+  await store.loadFolder(store.currentFolderId)
+}
+
+const moveTarget = ref<FileRecord | null>(null)
+const showMoveModal = ref(false)
+const moveCurrentFolderId = ref<string | null>(null)
+const moveFolderItems = ref<FileRecord[]>([])
+const moveLoadingFolders = ref(false)
+const moveBreadcrumbs = ref<{ id: string | null; name: string }[]>([])
+
+const previewTarget = ref<FileRecord | null>(null)
+const showPreviewModal = ref(false)
+const previewContent = ref<string | null>(null)
+const previewUrl = ref<string | null>(null)
+const previewLoading = ref(false)
+
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp']
+const TEXT_TYPES = [
+  'text/plain',
+  'text/html',
+  'text/css',
+  'text/javascript',
+  'application/json',
+  'application/xml',
+  'text/markdown',
+  'text/x-markdown',
+  'text/x-python',
+  'text/x-java',
+  'text/x-c',
+  'text/x-c++',
+  'text/x-typescript',
+  'text/x-sh',
+  'text/x-yaml',
+  'text/x-toml',
+]
+
+async function openPreview(file: FileRecord) {
+  previewTarget.value = file
+  showPreviewModal.value = true
+  previewContent.value = null
+  previewUrl.value = null
+  previewLoading.value = true
+  try {
+    const res = await fetch(`/api/v1/files/${file.id}/download`)
+    if (!res.ok) throw new Error('Download failed')
+    const mime = file.mimeType || ''
+    if (IMAGE_TYPES.includes(mime)) {
+      const blob = await res.blob()
+      previewUrl.value = URL.createObjectURL(blob)
+    } else if (TEXT_TYPES.includes(mime) || mime.startsWith('text/')) {
+      previewContent.value = await res.text()
+    } else {
+      previewContent.value = null
+    }
+  } catch {
+    message.error('Failed to load preview')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closePreview() {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = null
+  previewContent.value = null
+  previewTarget.value = null
+  showPreviewModal.value = false
+}
+
 async function init() {
   loading.value = true
   try {
@@ -45,6 +176,33 @@ async function init() {
 
 onMounted(init)
 watch(() => route.params.id, init)
+
+async function handleSearch() {
+  const q = searchQuery.value.trim()
+  if (!q) {
+    clearSearch()
+    return
+  }
+  isSearching.value = true
+  try {
+    searchResults.value = await searchFiles(q)
+  } catch {
+    message.error('Search failed')
+  } finally {
+    isSearching.value = false
+  }
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  isSearching.value = false
+}
+
+const displayedFiles = computed(() =>
+  isSearching.value || searchResults.value.length > 0 ? searchResults.value : store.currentFiles,
+)
+const isSearchActive = computed(() => searchQuery.value.trim().length > 0)
 
 function navigateToFolder(id: string) {
   router.push(`/folder/${id}`)
@@ -60,10 +218,14 @@ function navigateToBreadcrumb(id: string | null) {
 
 async function handleCreateFolder() {
   if (!newFolderName.value.trim()) return
-  await store.createFolder(newFolderName.value.trim())
-  newFolderName.value = ''
-  showCreateModal.value = false
-  message.success('Folder created')
+  try {
+    await store.createFolder(newFolderName.value.trim())
+    newFolderName.value = ''
+    showCreateModal.value = false
+    message.success('Folder created')
+  } catch {
+    message.error('Failed to create folder')
+  }
 }
 
 function openRename(file: FileRecord) {
@@ -74,15 +236,74 @@ function openRename(file: FileRecord) {
 
 async function handleRename() {
   if (!renameTarget.value || !renameName.value.trim()) return
-  await store.renameFile(renameTarget.value.id, renameName.value.trim())
-  showRenameModal.value = false
-  renameTarget.value = null
-  message.success('Renamed')
+  try {
+    await store.renameFile(renameTarget.value.id, renameName.value.trim())
+    showRenameModal.value = false
+    renameTarget.value = null
+    message.success('Renamed')
+  } catch {
+    message.error('Failed to rename')
+  }
 }
 
 async function handleDelete(file: FileRecord) {
-  await store.deleteFile(file.id)
-  message.success('Moved to trash')
+  try {
+    await store.deleteFile(file.id)
+    message.success('Moved to trash')
+  } catch {
+    message.error('Failed to delete')
+  }
+}
+
+function openMoveModal(file: FileRecord) {
+  moveTarget.value = file
+  moveCurrentFolderId.value = null
+  moveBreadcrumbs.value = [{ id: null, name: 'Root' }]
+  loadMoveFolders(null)
+  showMoveModal.value = true
+}
+
+async function loadMoveFolders(parentId: string | null) {
+  moveLoadingFolders.value = true
+  try {
+    const all = await listFiles(parentId ?? undefined)
+    moveFolderItems.value = all.filter((f) => f.type === 'folder')
+  } catch {
+    message.error('Failed to load folders')
+  } finally {
+    moveLoadingFolders.value = false
+  }
+}
+
+function navigateMoveFolder(id: string | null) {
+  if (id === null) {
+    moveBreadcrumbs.value = [{ id: null, name: 'Root' }]
+    moveCurrentFolderId.value = null
+    loadMoveFolders(null)
+    return
+  }
+  const existing = moveBreadcrumbs.value.findIndex((b) => b.id === id)
+  if (existing !== -1) {
+    moveBreadcrumbs.value = moveBreadcrumbs.value.slice(0, existing + 1)
+  } else {
+    const folder = moveFolderItems.value.find((f) => f.id === id)
+    if (folder) moveBreadcrumbs.value.push({ id: folder.id, name: folder.name })
+  }
+  moveCurrentFolderId.value = id
+  loadMoveFolders(id)
+}
+
+async function handleMove() {
+  if (!moveTarget.value) return
+  try {
+    await updateFile(moveTarget.value.id, { parentId: moveCurrentFolderId.value })
+    message.success('Moved successfully')
+    showMoveModal.value = false
+    moveTarget.value = null
+    await init()
+  } catch {
+    message.error('Failed to move')
+  }
 }
 
 async function handleUpload(options: UploadCustomRequestOptions) {
@@ -96,22 +317,10 @@ async function handleUpload(options: UploadCustomRequestOptions) {
     options.onFinish?.()
     message.success('Uploaded')
     await store.loadFolder(store.currentFolderId)
-  } catch (e) {
+  } catch {
     options.onError?.()
     message.error('Upload failed')
   }
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '-'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
 }
 
 const columns: DataTableColumn<FileRecord>[] = [
@@ -158,18 +367,43 @@ const columns: DataTableColumn<FileRecord>[] = [
   {
     title: 'Actions',
     key: 'actions',
-    width: 120,
+    width: 180,
     render(row) {
       return h(NSpace, null, [
-        h(NButton, { size: 'tiny', quaternary: true, onClick: () => openRename(row) }, () =>
-          h(NIcon, null, () => h(CreateOutline)),
-        ),
+        h(NTooltip, null, {
+          trigger: () =>
+            h(NButton, { size: 'tiny', quaternary: true, onClick: () => openRename(row) }, () =>
+              h(NIcon, null, () => h(CreateOutline)),
+            ),
+          default: () => 'Rename',
+        }),
+        h(NTooltip, null, {
+          trigger: () =>
+            h(NButton, { size: 'tiny', quaternary: true, onClick: () => openMoveModal(row) }, () =>
+              h(NIcon, null, () => h(MoveOutline)),
+            ),
+          default: () => 'Move',
+        }),
+        row.type === 'file'
+          ? h(NTooltip, null, {
+              trigger: () =>
+                h(NButton, { size: 'tiny', quaternary: true, onClick: () => openPreview(row) }, () =>
+                  h(NIcon, null, () => h(EyeOutline)),
+                ),
+              default: () => 'Preview',
+            })
+          : null,
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
           {
             default: () => 'Move to trash?',
-            trigger: () => h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
+            trigger: () =>
+              h(NTooltip, null, {
+                trigger: () =>
+                  h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
+                default: () => 'Delete',
+              }),
           },
         ),
       ])
@@ -179,10 +413,33 @@ const columns: DataTableColumn<FileRecord>[] = [
 </script>
 
 <template>
-  <div style="padding: 16px">
+  <div
+    style="padding: 16px; position: relative; min-height: 300px"
+    @dragover="handleDragOver"
+    @dragenter="handleDragEnter"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
+  >
+    <div
+      v-if="isDragging"
+      style="
+        position: absolute;
+        inset: 0;
+        z-index: 100;
+        background: rgba(24, 160, 88, 0.08);
+        border: 2px dashed #18a058;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: #18a058;
+      "
+    >
+      Drop files to upload
+    </div>
     <NSpace vertical size="large">
       <NSpace align="center" justify="space-between">
-        <NBreadcrumb>
+        <NBreadcrumb v-if="!isSearchActive">
           <NBreadcrumbItem v-for="crumb in store.currentBreadcrumbs" :key="crumb.id ?? 'root'">
             <a v-if="crumb.id !== store.currentFolderId" href="#" @click.prevent="navigateToBreadcrumb(crumb.id)">
               {{ crumb.name }}
@@ -190,8 +447,24 @@ const columns: DataTableColumn<FileRecord>[] = [
             <span v-else>{{ crumb.name }}</span>
           </NBreadcrumbItem>
         </NBreadcrumb>
+        <span v-else style="font-weight: 600">Search results</span>
         <NSpace>
-          <NUpload :custom-request="handleUpload" :show-file-list="false" accept="*">
+          <NInput
+            v-model:value="searchQuery"
+            placeholder="Search files..."
+            clearable
+            style="width: 220px"
+            @keyup.enter="handleSearch"
+            @clear="clearSearch"
+          >
+            <template #prefix>
+              <NIcon><SearchOutline /></NIcon>
+            </template>
+            <template #suffix v-if="isSearchActive">
+              <NIcon style="cursor: pointer" @click="clearSearch"><CloseOutline /></NIcon>
+            </template>
+          </NInput>
+          <NUpload v-if="!isSearchActive" :custom-request="handleUpload" :show-file-list="false" accept="*">
             <NButton>
               <template #icon
                 ><NIcon><CloudUploadOutline /></NIcon
@@ -199,7 +472,7 @@ const columns: DataTableColumn<FileRecord>[] = [
               Upload
             </NButton>
           </NUpload>
-          <NButton @click="showCreateModal = true">
+          <NButton v-if="!isSearchActive" @click="showCreateModal = true">
             <template #icon
               ><NIcon><CreateOutline /></NIcon
             ></template>
@@ -208,11 +481,11 @@ const columns: DataTableColumn<FileRecord>[] = [
         </NSpace>
       </NSpace>
 
-      <NSpin :show="loading">
+      <NSpin :show="loading || isSearching">
         <NDataTable
-          v-if="store.currentFiles.length > 0"
+          v-if="displayedFiles.length > 0"
           :columns="columns"
-          :data="store.currentFiles"
+          :data="displayedFiles"
           :bordered="false"
           :single-line="false"
         />
@@ -232,6 +505,60 @@ const columns: DataTableColumn<FileRecord>[] = [
       <template #footer>
         <NButton type="primary" @click="handleRename">Rename</NButton>
       </template>
+    </NModal>
+
+    <NModal v-model:show="showMoveModal" title="Move to..." preset="card" style="width: 420px">
+      <NSpace vertical>
+        <NBreadcrumb>
+          <NBreadcrumbItem v-for="crumb in moveBreadcrumbs" :key="crumb.id ?? 'root'">
+            <a v-if="crumb.id !== moveCurrentFolderId" href="#" @click.prevent="navigateMoveFolder(crumb.id)">
+              {{ crumb.name }}
+            </a>
+            <span v-else>{{ crumb.name }}</span>
+          </NBreadcrumbItem>
+        </NBreadcrumb>
+        <NSpin :show="moveLoadingFolders">
+          <div v-if="moveFolderItems.length > 0" style="max-height: 300px; overflow-y: auto">
+            <div
+              v-for="folder in moveFolderItems"
+              :key="folder.id"
+              style="cursor: pointer; padding: 6px 8px; display: flex; align-items: center; gap: 6px"
+              @click="navigateMoveFolder(folder.id)"
+            >
+              <NIcon><FolderOpenOutline /></NIcon>
+              {{ folder.name }}
+            </div>
+          </div>
+          <NEmpty v-else description="No subfolders" />
+        </NSpin>
+      </NSpace>
+      <template #footer>
+        <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">Move here</NButton>
+      </template>
+    </NModal>
+
+    <NModal
+      v-model:show="showPreviewModal"
+      :title="previewTarget?.name ?? 'Preview'"
+      preset="card"
+      style="width: 800px; max-height: 90vh"
+      @update:show="
+        (val: boolean) => {
+          if (!val) closePreview()
+        }
+      "
+    >
+      <NSpin :show="previewLoading">
+        <div v-if="previewUrl" style="text-align: center">
+          <img :src="previewUrl" alt="Preview" style="max-width: 100%; max-height: 70vh; object-fit: contain" />
+        </div>
+        <pre
+          v-else-if="previewContent !== null"
+          style="max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0"
+          >{{ previewContent }}</pre
+        >
+        <NEmpty v-else-if="!previewLoading" description="Preview not available for this file type" />
+      </NSpin>
     </NModal>
   </div>
 </template>
