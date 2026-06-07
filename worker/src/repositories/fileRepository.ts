@@ -8,6 +8,7 @@ function mapRow(row: Record<string, unknown>): FileRecord {
     type: row.type as 'file' | 'folder',
     mimeType: row.mime_type as string | null,
     size: row.size as number,
+    hash: row.hash as string | null,
     r2Key: row.r2_key as string | null,
     isTrashed: Boolean(row.is_trashed),
     createdAt: row.created_at as string,
@@ -40,10 +41,21 @@ export function createFileRepository(db: D1Database) {
     const now = new Date().toISOString()
     await db
       .prepare(
-        `INSERT INTO files (id, name, parent_id, type, mime_type, size, r2_key, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO files (id, name, parent_id, type, mime_type, size, hash, r2_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(id, input.name, input.parentId, input.type, input.mimeType, input.size, input.r2Key, now, now)
+      .bind(
+        id,
+        input.name,
+        input.parentId,
+        input.type,
+        input.mimeType,
+        input.size,
+        input.hash ?? null,
+        input.r2Key,
+        now,
+        now,
+      )
       .run()
     return (await findById(id))!
   }
@@ -72,6 +84,10 @@ export function createFileRepository(db: D1Database) {
       sets.push('r2_key = ?')
       values.push(input.r2Key)
     }
+    if (input.hash !== undefined) {
+      sets.push('hash = ?')
+      values.push(input.hash)
+    }
     values.push(id)
     await db
       .prepare(`UPDATE files SET ${sets.join(', ')} WHERE id = ?`)
@@ -95,8 +111,25 @@ export function createFileRepository(db: D1Database) {
     return results.map(mapRow)
   }
 
+  async function countByR2Key(r2Key: string, excludeId?: string): Promise<number> {
+    const query = excludeId
+      ? 'SELECT COUNT(*) AS count FROM files WHERE r2_key = ? AND id != ?'
+      : 'SELECT COUNT(*) AS count FROM files WHERE r2_key = ?'
+    const stmt = excludeId ? db.prepare(query).bind(r2Key, excludeId) : db.prepare(query).bind(r2Key)
+    const row = await stmt.first<{ count: number }>()
+    return row?.count ?? 0
+  }
+
   async function hardDelete(id: string): Promise<void> {
     await db.prepare('DELETE FROM files WHERE id = ?').bind(id).run()
+  }
+
+  async function findByHash(hash: string): Promise<FileRecord | null> {
+    const row = await db
+      .prepare('SELECT * FROM files WHERE hash = ? AND is_trashed = 0 ORDER BY created_at DESC')
+      .bind(hash)
+      .first()
+    return row ? mapRow(row as Record<string, unknown>) : null
   }
 
   async function search(query: string): Promise<FileRecord[]> {
@@ -107,5 +140,17 @@ export function createFileRepository(db: D1Database) {
     return results.map(mapRow)
   }
 
-  return { findByParent, findById, create, update, softDelete, restore, findTrashed, hardDelete, search }
+  return {
+    findByParent,
+    findById,
+    findByHash,
+    create,
+    update,
+    softDelete,
+    restore,
+    findTrashed,
+    hardDelete,
+    countByR2Key,
+    search,
+  }
 }

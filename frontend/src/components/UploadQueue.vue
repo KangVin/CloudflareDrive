@@ -30,9 +30,15 @@ function getProgressStatus(task: UploadTask): 'default' | 'success' | 'error' {
       <div v-for="task in tasks" :key="task.id">
         <NSpace align="center" justify="space-between">
           <span class="upload-task-name">{{ task.name }}</span>
-          <span>{{ task.status === 'uploading' ? settings.t('uploading') : `${task.percent}%` }}</span>
+          <span>{{
+            task.status === 'hashing'
+              ? settings.t('hashing')
+              : task.status === 'uploading'
+                ? settings.t('uploading')
+                : `${task.percent}%`
+          }}</span>
         </NSpace>
-        <NProgress type="line" :percentage="task.percent" :status="getProgressStatus(task)" />
+        <NProgress type="line" :percentage="task.percent" :status="getProgressStatus(task)" :show-indicator="false" />
       </div>
     </NSpace>
   </div>

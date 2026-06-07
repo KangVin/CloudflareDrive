@@ -21,6 +21,29 @@ files.get('/search', async (c) => {
   return c.json(items)
 })
 
+files.get('/by-hash', async (c) => {
+  const hash = c.req.query('hash')
+  if (!hash) return c.json({ error: 'Hash parameter is required' }, 400)
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const item = await svc.checkHash(hash)
+  if (!item) return c.json({ error: 'Not found' }, 404)
+  return c.json(item)
+})
+
+files.post('/instant', async (c) => {
+  const body = await c.req.json<{ hash: string; parentId?: string | null; name: string; mimeType?: string | null }>()
+  if (!body.hash || !body.name) return c.json({ error: 'hash and name are required' }, 400)
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const item = await svc.instant(
+    body.hash,
+    body.parentId ?? null,
+    body.name,
+    body.mimeType ?? 'application/octet-stream',
+  )
+  if (!item) return c.json({ error: 'Hash not found' }, 404)
+  return c.json(item, 201)
+})
+
 files.post('/:id/copy', async (c) => {
   const body = await c.req.json<{ parentId?: string | null }>()
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
@@ -49,9 +72,10 @@ files.post('/upload', async (c) => {
   const form = await c.req.formData()
   const file = form.get('file') as File | null
   if (!file) return c.json({ error: 'File is required' }, 400)
+  const hash = (form.get('hash') as string | null) || undefined
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const buf = await file.arrayBuffer()
-  const item = await svc.upload(file.name, parentId, file.type, buf)
+  const item = await svc.upload(file.name, parentId, file.type, buf, hash)
   return c.json(item, 201)
 })
 

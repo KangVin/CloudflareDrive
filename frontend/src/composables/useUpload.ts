@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 
 /** Upload item status displayed in the upload queue */
-export type UploadTaskStatus = 'uploading' | 'success' | 'error'
+export type UploadTaskStatus = 'hashing' | 'uploading' | 'success' | 'error'
 
 /** Upload task displayed in the upload progress panel */
 export interface UploadTask {
@@ -16,6 +16,29 @@ const MAX_CONCURRENT_UPLOADS = 4
 
 let globalInstance: ReturnType<typeof createUploadState> | null = null
 
+async function computeFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function checkHash(hash: string): Promise<boolean> {
+  const res = await fetch(`/api/v1/files/by-hash?hash=${encodeURIComponent(hash)}`)
+  if (res.status === 404) return false
+  if (!res.ok) throw new Error('Failed to check hash')
+  return true
+}
+
+async function instantUpload(hash: string, parentId: string | null, name: string, mimeType: string): Promise<void> {
+  const res = await fetch('/api/v1/files/instant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hash, parentId, name, mimeType }),
+  })
+  if (!res.ok) throw new Error('Instant upload failed')
+}
+
 function createUploadState() {
   const uploadTasks = ref<UploadTask[]>([])
   const hasUploadTasks = computed(() => uploadTasks.value.length > 0)
@@ -25,7 +48,7 @@ function createUploadState() {
       id: crypto.randomUUID(),
       name: file.name,
       percent: 0,
-      status: 'uploading',
+      status: 'hashing',
     }
     uploadTasks.value.unshift(task)
     return task
@@ -37,7 +60,7 @@ function createUploadState() {
   }
 
   function clearFinished() {
-    uploadTasks.value = uploadTasks.value.filter((task) => task.status === 'uploading')
+    uploadTasks.value = uploadTasks.value.filter((task) => task.status === 'hashing' || task.status === 'uploading')
   }
 
   function getProgressStatus(task: UploadTask): 'default' | 'success' | 'error' {
@@ -46,10 +69,26 @@ function createUploadState() {
     return 'default'
   }
 
-  function uploadFile(file: File, parentId: string | null, onProgress?: (percent: number) => void): Promise<void> {
+  async function uploadFile(
+    file: File,
+    parentId: string | null,
+    taskId: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> {
+    updateTask(taskId, { status: 'hashing', percent: 0 })
+    const hash = await computeFileHash(file)
+
+    if (await checkHash(hash)) {
+      await instantUpload(hash, parentId, file.name, file.type)
+      onProgress?.(UPLOAD_DONE_PERCENT)
+      return
+    }
+
+    updateTask(taskId, { status: 'uploading', percent: 0 })
     return new Promise((resolve, reject) => {
       const form = new FormData()
       form.append('file', file)
+      form.append('hash', hash)
       const xhr = new XMLHttpRequest()
       const url = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
       xhr.open('POST', url)
@@ -84,7 +123,7 @@ function createUploadState() {
         const file = queue.shift()!
         const task = createTask(file)
         try {
-          await uploadFile(file, parentId, (percent) => {
+          await uploadFile(file, parentId, task.id, (percent) => {
             updateTask(task.id, { percent })
           })
           updateTask(task.id, { percent: UPLOAD_DONE_PERCENT, status: 'success' })

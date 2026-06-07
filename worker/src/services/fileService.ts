@@ -31,7 +31,23 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     parentId: string | null,
     mimeType: string,
     body: ArrayBuffer | ReadableStream,
+    hash?: string | null,
   ): Promise<FileRecord> {
+    if (hash) {
+      const existing = await fileRepo.findByHash(hash)
+      if (existing && existing.r2Key) {
+        const input: CreateFileInput = {
+          name,
+          parentId,
+          type: 'file',
+          mimeType,
+          size: existing.size,
+          hash: existing.hash,
+          r2Key: existing.r2Key,
+        }
+        return await fileRepo.create(input)
+      }
+    }
     const r2Key = `uploads/${crypto.randomUUID()}/${name}`
     await storageRepo.upload(r2Key, body)
     const input: CreateFileInput = {
@@ -40,6 +56,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
       type: 'file',
       mimeType,
       size: body instanceof ArrayBuffer ? body.byteLength : 0,
+      hash: hash ?? null,
       r2Key,
     }
     return await fileRepo.create(input)
@@ -134,7 +151,10 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
       await permanentDeleteChildren(id)
     }
     if (file.r2Key) {
-      await storageRepo.remove(file.r2Key)
+      const refCount = await fileRepo.countByR2Key(file.r2Key, id)
+      if (refCount === 0) {
+        await storageRepo.remove(file.r2Key)
+      }
     }
     await fileRepo.hardDelete(id)
   }
@@ -146,15 +166,56 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
         await permanentDeleteChildren(child.id)
       }
       if (child.r2Key) {
-        await storageRepo.remove(child.r2Key)
+        const refCount = await fileRepo.countByR2Key(child.r2Key, child.id)
+        if (refCount === 0) {
+          await storageRepo.remove(child.r2Key)
+        }
       }
       await fileRepo.hardDelete(child.id)
     }
+  }
+
+  async function checkHash(hash: string): Promise<FileRecord | null> {
+    return await fileRepo.findByHash(hash)
+  }
+
+  async function instant(
+    hash: string,
+    parentId: string | null,
+    name: string,
+    mimeType: string,
+  ): Promise<FileRecord | null> {
+    const existing = await fileRepo.findByHash(hash)
+    if (!existing || !existing.r2Key) return null
+    const input: CreateFileInput = {
+      name,
+      parentId,
+      type: 'file',
+      mimeType,
+      size: existing.size,
+      hash: existing.hash,
+      r2Key: existing.r2Key,
+    }
+    return await fileRepo.create(input)
   }
 
   async function search(query: string): Promise<FileRecord[]> {
     return await fileRepo.search(query)
   }
 
-  return { list, get, createFolder, upload, update, copy, trash, restore, listTrashed, permanentDelete, search }
+  return {
+    list,
+    get,
+    createFolder,
+    upload,
+    update,
+    copy,
+    trash,
+    restore,
+    listTrashed,
+    permanentDelete,
+    checkHash,
+    instant,
+    search,
+  }
 }

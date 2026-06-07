@@ -6,6 +6,7 @@ export interface FileRecord {
   type: 'file' | 'folder'
   mimeType: string | null
   size: number
+  hash: string | null
   r2Key: string | null
   isTrashed: boolean
   createdAt: string
@@ -19,6 +20,7 @@ export interface CreateFileInput {
   type: 'file' | 'folder'
   mimeType: string | null
   size: number
+  hash?: string | null
   r2Key: string | null
 }
 
@@ -28,6 +30,7 @@ export interface UpdateFileInput {
   parentId?: string | null
   mimeType?: string | null
   size?: number
+  hash?: string | null
   r2Key?: string | null
 }
 

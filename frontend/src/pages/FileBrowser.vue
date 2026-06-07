@@ -515,7 +515,7 @@ async function handleMove() {
 function handleUpload(options: UploadCustomRequestOptions) {
   const file = options.file.file as File
   const task = createTask(file)
-  uploadFile(file, store.currentFolderId, (percent) => {
+  uploadFile(file, store.currentFolderId, task.id, (percent) => {
     updateTask(task.id, { percent })
     options.onProgress?.({ percent })
   })
