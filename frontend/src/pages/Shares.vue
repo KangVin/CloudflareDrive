@@ -58,7 +58,7 @@ const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
     key: 'token',
     width: 280,
     render(row) {
-      return h(NSpace, null, [
+      return h(NSpace, null, () => [
         h(
           'span',
           { style: 'font-family: monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis' },

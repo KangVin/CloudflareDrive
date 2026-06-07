@@ -99,7 +99,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
     key: 'actions',
     width: 140,
     render(row) {
-      return h(NSpace, null, [
+      return h(NSpace, null, () => [
         h(NTooltip, null, {
           trigger: () =>
             h(NButton, { size: 'tiny', quaternary: true, onClick: () => handleRestore(row) }, () =>
