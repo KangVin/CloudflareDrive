@@ -7,21 +7,21 @@
   "routes": [
     {
       "pattern": "api/*",
-      "zone_id": ""
-    }
+      "zone_id": "",
+    },
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "cloudflare-drive-db",
-      "database_id": "",
-      "migrations_dir": "migrations"
-    }
+      "database_id": "e20514e5-ce22-46be-b7a0-722e0961e458",
+      "migrations_dir": "migrations",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "STORAGE",
-      "bucket_name": "cloudflare-drive-storage"
-    }
-  ]
+      "bucket_name": "cloudflare-drive-storage",
+    },
+  ],
 }

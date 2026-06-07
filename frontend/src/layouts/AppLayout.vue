@@ -31,7 +31,7 @@ function handleMenuUpdate(key: string) {
 </script>
 
 <template>
-  <NLayout>
+  <NLayout style="height: 100vh">
     <NLayoutHeader bordered>
       <NMenu
         :value="router.currentRoute.value.path"
@@ -40,7 +40,7 @@ function handleMenuUpdate(key: string) {
         @update:value="handleMenuUpdate"
       />
     </NLayoutHeader>
-    <NLayoutContent>
+    <NLayoutContent style="height: calc(100vh - 64px); overflow-y: auto">
       <router-view />
     </NLayoutContent>
   </NLayout>
