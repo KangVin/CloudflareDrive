@@ -28,7 +28,7 @@ async function handleRevoke(share: ShareRecord) {
 }
 
 const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
-  { title: settings.t('file'), key: 'fileName' },
+  { title: settings.t('file'), key: 'fileName', minWidth: 180, ellipsis: { tooltip: true } },
   {
     title: settings.t('type'),
     key: 'fileType',
@@ -103,14 +103,18 @@ const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
   <div style="padding: 16px">
     <h2 style="margin-top: 0">{{ settings.t('shareLinks') }}</h2>
     <NSpin :show="store.loading">
-      <NDataTable
-        v-if="store.shares.length > 0"
-        :columns="columns"
-        :data="store.shares"
-        :bordered="false"
-        :single-line="false"
-      />
+      <div v-if="store.shares.length > 0" class="table-wrap">
+        <NDataTable :columns="columns" :data="store.shares" :bordered="false" :single-line="false" />
+      </div>
       <NEmpty v-else :description="settings.t('noShareLinks')" />
     </NSpin>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 768px) {
+  .table-wrap {
+    overflow-x: auto;
+  }
+}
+</style>

@@ -433,6 +433,8 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
   {
     title: settings.t('name'),
     key: 'name',
+    minWidth: 180,
+    ellipsis: { tooltip: true },
     sorter: true,
     render(row) {
       return row.type === 'folder'

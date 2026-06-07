@@ -33,7 +33,7 @@ async function handlePermanentDelete(file: FileRecord) {
 }
 
 const columns = computed<DataTableColumn<FileRecord>[]>(() => [
-  { title: settings.t('name'), key: 'name', sorter: true },
+  { title: settings.t('name'), key: 'name', minWidth: 180, ellipsis: { tooltip: true }, sorter: true },
   {
     title: settings.t('size'),
     key: 'size',
@@ -89,14 +89,18 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
   <div style="padding: 16px">
     <h2 style="margin-top: 0">{{ settings.t('trash') }}</h2>
     <NSpin :show="store.loading">
-      <NDataTable
-        v-if="store.files.length > 0"
-        :columns="columns"
-        :data="store.files"
-        :bordered="false"
-        :single-line="false"
-      />
+      <div v-if="store.files.length > 0" class="table-wrap">
+        <NDataTable :columns="columns" :data="store.files" :bordered="false" :single-line="false" />
+      </div>
       <NEmpty v-else :description="settings.t('noFilesYet')" />
     </NSpin>
   </div>
 </template>
+
+<style scoped>
+@media (max-width: 768px) {
+  .table-wrap {
+    overflow-x: auto;
+  }
+}
+</style>
