@@ -37,6 +37,13 @@ app.get('/api/v1/s/:token', async (c) => {
   return c.json(result)
 })
 
+app.get('/api/v1/s/:token/browse/:folderId', async (c) => {
+  const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+  const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'))
+  if (!result) return c.json({ error: 'Not found' }, 404)
+  return c.json(result)
+})
+
 app.get('/api/v1/s/:token/download', async (c) => {
   const shareRepo = createShareRepository(c.env.DB)
   const fileRepo = createFileRepository(c.env.DB)

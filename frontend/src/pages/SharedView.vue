@@ -1,29 +1,68 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, shallowRef, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NSpin, NButton, NEmpty, NIcon } from 'naive-ui'
-import { DocumentOutline, DownloadOutline, FolderOpenOutline } from '@vicons/ionicons5'
-import { getPublicShare } from '@/api/shares'
+import { DocumentOutline, DownloadOutline, FolderOpenOutline, ArrowBackOutline } from '@vicons/ionicons5'
+import { getPublicShare, getPublicBrowse } from '@/api/shares'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { PublicShareResult, PublicShareFolder } from '@/types'
+import type { PublicShareResult, PublicShareFolder, PublicShareFileItem } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const settings = useSettingsStore()
 const loading = ref(true)
 const error = ref<string | null>(null)
-const data = ref<PublicShareResult | null>(null)
+const data = shallowRef<PublicShareResult | null>(null)
 
-onMounted(async () => {
+/** Stack of previous folder views for back navigation: each entry contains the folder data to restore */
+const folderStack = shallowRef<Array<{ id: string; name: string; files: PublicShareFileItem[] }>>([])
+
+/** Currently displayed folder data (for folder-type shares) */
+const currentFolder = shallowRef<PublicShareFolder | null>(null)
+
+async function loadRoot() {
+  loading.value = true
   const token = route.params.token as string
   try {
-    data.value = await getPublicShare(token)
+    const result = await getPublicShare(token)
+    data.value = result
+    if (result.type === 'folder') {
+      currentFolder.value = result
+      folderStack.value = []
+    }
   } catch {
     error.value = settings.t('shareNotFoundOrExpired')
   } finally {
     loading.value = false
   }
-})
+}
+
+async function openFolder(folderId: string, _folderName: string) {
+  loading.value = true
+  const token = route.params.token as string
+  try {
+    const result = await getPublicBrowse(token, folderId)
+    const cur = currentFolder.value
+    if (cur) {
+      folderStack.value = [...folderStack.value, { id: cur.id, name: cur.name, files: cur.files }]
+    }
+    currentFolder.value = result
+  } catch {
+    console.error('Failed to browse subfolder')
+  } finally {
+    loading.value = false
+  }
+}
+
+function goBack() {
+  const prev = folderStack.value.pop()
+  if (prev) {
+    currentFolder.value = { type: 'folder', id: prev.id, name: prev.name, files: prev.files }
+    folderStack.value = [...folderStack.value]
+  }
+}
+
+onMounted(loadRoot)
 </script>
 
 <template>
@@ -45,18 +84,33 @@ onMounted(async () => {
             {{ settings.t('download') }}
           </NButton>
         </template>
-        <template v-else>
-          <h2 style="display: flex; align-items: center; gap: 8px">
-            <NIcon><FolderOpenOutline /></NIcon>
-            {{ data.name }}
-          </h2>
+        <template v-else-if="currentFolder">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px">
+            <NButton v-if="folderStack.length > 0" quaternary size="small" @click="goBack">
+              <template #icon
+                ><NIcon><ArrowBackOutline /></NIcon
+              ></template>
+            </NButton>
+            <h2 style="margin: 0; display: flex; align-items: center; gap: 8px">
+              <NIcon><FolderOpenOutline /></NIcon>
+              {{ currentFolder.name }}
+            </h2>
+          </div>
           <div
-            v-for="file in (data as PublicShareFolder).files"
+            v-for="file in currentFolder.files"
             :key="file.id"
             style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee"
           >
-            <NIcon><DocumentOutline /></NIcon>
-            <span style="flex: 1">{{ file.name }}</span>
+            <NIcon>
+              <FolderOpenOutline v-if="file.type === 'folder'" style="color: #f0ad4e" />
+              <DocumentOutline v-else />
+            </NIcon>
+            <span
+              :style="{ flex: 1, cursor: file.type === 'folder' ? 'pointer' : 'default', userSelect: 'none' }"
+              @click="file.type === 'folder' && openFolder(file.id, file.name)"
+            >
+              {{ file.name }}
+            </span>
             <span style="color: #888">{{ file.sizeFormatted }}</span>
             <NButton
               v-if="file.type === 'file'"

@@ -24,18 +24,22 @@ export interface ShareRecord {
   fileType: 'file' | 'folder'
 }
 
+/** File/folder item within a shared folder listing */
+export interface PublicShareFileItem {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  mimeType: string | null
+  size: number
+  sizeFormatted: string
+}
+
 /** Result of a public share lookup */
 export interface PublicShareFolder {
   type: 'folder'
+  id: string
   name: string
-  files: Array<{
-    id: string
-    name: string
-    type: 'file' | 'folder'
-    mimeType: string | null
-    size: number
-    sizeFormatted: string
-  }>
+  files: PublicShareFileItem[]
 }
 
 export interface PublicShareFile {

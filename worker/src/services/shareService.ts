@@ -35,6 +35,18 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
     await shareRepo.remove(id)
   }
 
+  /** Walk up the parent chain to check if folderId is a descendant of ancestorId */
+  async function isDescendant(folderId: string, ancestorId: string): Promise<boolean> {
+    if (folderId === ancestorId) return true
+    let currentId: string | null = folderId
+    while (currentId) {
+      if (currentId === ancestorId) return true
+      const current = await fileRepo.findById(currentId)
+      currentId = current?.parentId ?? null
+    }
+    return false
+  }
+
   async function getPublic(token: string) {
     const share = await shareRepo.findByToken(token)
     if (!share) return null
@@ -45,6 +57,7 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
       const children = await fileRepo.findByParent(file.id)
       return {
         type: 'folder' as const,
+        id: file.id,
         name: file.name,
         files: children.map((c) => ({
           id: c.id,
@@ -66,5 +79,28 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
     }
   }
 
-  return { list, create, revoke, getPublic }
+  async function getPublicBrowse(token: string, folderId: string) {
+    const share = await shareRepo.findByToken(token)
+    if (!share) return null
+    if (share.expiresAt && new Date(share.expiresAt) < new Date()) return null
+    if (!(await isDescendant(folderId, share.fileId))) return null
+    const folder = await fileRepo.findById(folderId)
+    if (!folder || folder.isTrashed || folder.type !== 'folder') return null
+    const children = await fileRepo.findByParent(folderId)
+    return {
+      type: 'folder' as const,
+      id: folder.id,
+      name: folder.name,
+      files: children.map((c) => ({
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        mimeType: c.mimeType,
+        size: c.size,
+        sizeFormatted: c.type === 'file' ? formatSize(c.size) : '-',
+      })),
+    }
+  }
+
+  return { list, create, revoke, getPublic, getPublicBrowse }
 }

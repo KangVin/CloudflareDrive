@@ -1,4 +1,4 @@
-import type { ShareRecord, PublicShareResult } from '@/types'
+import type { ShareRecord, PublicShareResult, PublicShareFolder } from '@/types'
 
 const BASE = '/api/v1/shares'
 
@@ -26,5 +26,11 @@ export async function revokeShare(id: string): Promise<void> {
 export async function getPublicShare(token: string): Promise<PublicShareResult> {
   const res = await fetch(`/api/v1/s/${token}`)
   if (!res.ok) throw new Error('Share not found or expired')
+  return res.json()
+}
+
+export async function getPublicBrowse(token: string, folderId: string): Promise<PublicShareFolder> {
+  const res = await fetch(`/api/v1/s/${token}/browse/${folderId}`)
+  if (!res.ok) throw new Error('Folder not found')
   return res.json()
 }
