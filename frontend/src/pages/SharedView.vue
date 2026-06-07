@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NSpin, NButton, NEmpty, NIcon } from 'naive-ui'
+import { NSpin, NButton, NEmpty, NIcon, useMessage } from 'naive-ui'
 import { DocumentOutline, DownloadOutline, FolderOpenOutline, ArrowBackOutline } from '@vicons/ionicons5'
 import { getPublicShare, getPublicBrowse } from '@/api/shares'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -10,6 +10,7 @@ import type { PublicShareResult, PublicShareFolder, PublicShareFileItem } from '
 const route = useRoute()
 const router = useRouter()
 const settings = useSettingsStore()
+const message = useMessage()
 const loading = ref(true)
 const error = ref<string | null>(null)
 const data = shallowRef<PublicShareResult | null>(null)
@@ -47,8 +48,8 @@ async function openFolder(folderId: string, _folderName: string) {
       folderStack.value = [...folderStack.value, { id: cur.id, name: cur.name, files: cur.files }]
     }
     currentFolder.value = result
-  } catch {
-    console.error('Failed to browse subfolder')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
   } finally {
     loading.value = false
   }

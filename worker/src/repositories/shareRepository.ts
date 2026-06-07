@@ -74,5 +74,9 @@ export function createShareRepository(db: D1Database) {
     await db.prepare('DELETE FROM shares WHERE id = ?').bind(id).run()
   }
 
-  return { findAll, findByToken, findById, create, remove }
+  async function removeByFileId(fileId: string): Promise<void> {
+    await db.prepare('DELETE FROM shares WHERE file_id = ?').bind(fileId).run()
+  }
+
+  return { findAll, findByToken, findById, create, remove, removeByFileId }
 }

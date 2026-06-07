@@ -21,9 +21,13 @@ async function withCache(
     const cache = caches.default
     const cached = await cache.match(req)
     if (cached) return cached
+  } catch {
+    // Cache API unavailable, proceed without caching
+  }
 
-    const { status, body } = await handler()
+  const { status, body } = await handler()
 
+  try {
     const ttl = status === 200 ? 10 : 30
     const response = new Response(JSON.stringify(body), {
       status,
@@ -33,11 +37,9 @@ async function withCache(
       },
     })
 
-    ctx.waitUntil(cache.put(req, response.clone()))
+    ctx.waitUntil(caches.default.put(req, response.clone()))
     return response
   } catch {
-    // Cache API unavailable (e.g. Cloudflare Access), fall back to non-cached
-    const { status, body } = await handler()
     return new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' },

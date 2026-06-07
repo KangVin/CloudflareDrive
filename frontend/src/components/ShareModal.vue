@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { NButton, NModal, NSpace, NSelect, useMessage } from 'naive-ui'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { createShare } from '@/api/shares'
+import { useShareStore } from '@/stores/shareStore'
 import type { FileRecord } from '@/types'
 
 const props = defineProps<{
@@ -16,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettingsStore()
+const shareStore = useShareStore()
 const message = useMessage()
 
 const shareExpiryDays = ref<number>(0)
@@ -31,7 +32,8 @@ watch(
 )
 
 async function handleCreateShare() {
-  if (!props.target) return
+  const target = props.target
+  if (!target) return
   sharingLoading.value = true
   try {
     let expiresAt: string | null = null
@@ -40,7 +42,7 @@ async function handleCreateShare() {
       d.setDate(d.getDate() + shareExpiryDays.value)
       expiresAt = d.toISOString()
     }
-    await createShare(props.target.id, expiresAt)
+    await shareStore.create(target.id, expiresAt)
     message.success(settings.t('shareLinkCreated'))
     emit('shared')
     emit('update:show', false)

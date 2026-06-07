@@ -18,7 +18,13 @@ const message = useMessage()
 const checkedRowKeys = ref<string[]>([])
 const selectedFiles = computed(() => store.files.filter((file) => checkedRowKeys.value.includes(file.id)))
 
-onMounted(() => store.loadTrashed())
+onMounted(async () => {
+  try {
+    await store.loadTrashed()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
+  }
+})
 
 async function handleRestore(file: FileRecord) {
   try {

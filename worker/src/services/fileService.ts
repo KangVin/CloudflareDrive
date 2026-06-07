@@ -1,11 +1,13 @@
 import type { CreateFileInput, FileRecord, UpdateFileInput } from '../types/models'
 import type { createFileRepository } from '../repositories/fileRepository'
 import type { createStorageRepository } from '../repositories/storageRepository'
+import type { createShareRepository } from '../repositories/shareRepository'
 
 type FileRepo = ReturnType<typeof createFileRepository>
 type StorageRepo = ReturnType<typeof createStorageRepository>
+type ShareRepo = ReturnType<typeof createShareRepository>
 
-export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) {
+export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo, shareRepo?: ShareRepo) {
   async function list(parentId: string | null): Promise<FileRecord[]> {
     return await fileRepo.findByParent(parentId)
   }
@@ -165,6 +167,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
         await storageRepo.remove(file.r2Key)
       }
     }
+    await shareRepo?.removeByFileId(id)
     await fileRepo.hardDelete(id)
   }
 
@@ -180,6 +183,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
           await storageRepo.remove(child.r2Key)
         }
       }
+      await shareRepo?.removeByFileId(child.id)
       await fileRepo.hardDelete(child.id)
     }
   }

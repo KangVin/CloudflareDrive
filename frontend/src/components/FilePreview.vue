@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { NModal, NSpin, NEmpty, useMessage } from 'naive-ui'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { IMAGE_TYPES, TEXT_TYPES } from '@/utils/constants'
@@ -58,6 +58,10 @@ watch(
     }
   },
 )
+
+onUnmounted(() => {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
 </script>
 
 <template>

@@ -86,11 +86,11 @@ function handleContextMenuSelect(key: string) {
   if (key === 'open') {
     if (file.type === 'folder') navigateToFolder(file.id)
   } else if (key === 'rename') {
-    openRename(file)
+    if (!isSearchActive.value) openRename(file)
   } else if (key === 'move') {
-    openMoveModal(file)
+    if (!isSearchActive.value) openMoveModal(file)
   } else if (key === 'share') {
-    openShareModal(file)
+    if (!isSearchActive.value) openShareModal(file)
   } else if (key === 'copy') {
     checkedRowKeys.value = [file.id]
     copyFilesToClipboard([file])
@@ -100,7 +100,7 @@ function handleContextMenuSelect(key: string) {
   } else if (key === 'paste') {
     pasteClipboardItems()
   } else if (key === 'delete') {
-    handleDelete(file)
+    if (!isSearchActive.value) handleDelete(file)
   } else if (key === 'preview' && file.type === 'file') {
     openPreview(file)
   }
@@ -154,14 +154,20 @@ function handleKeydown(e: KeyboardEvent) {
     return
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && checkedRowKeys.value.length > 1) {
-    if (!isSearchActive.value) handleBatchDelete()
+    if (!isSearchActive.value) {
+      if (!window.confirm(settings.t('moveSelectedToTrashConfirm'))) return
+      handleBatchDelete()
+    }
     return
   }
   if (checkedRowKeys.value.length !== 1) return
   const file = displayedFiles.value.find((f) => f.id === checkedRowKeys.value[0])
   if (!file) return
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (!isSearchActive.value) handleDelete(file)
+    if (!isSearchActive.value) {
+      if (!window.confirm(settings.t('moveToTrashConfirm'))) return
+      handleDelete(file)
+    }
   } else if (e.key === 'F2') {
     e.preventDefault()
     openRename(file)
@@ -262,6 +268,8 @@ async function init() {
   try {
     const folderId = route.params.id as string | undefined
     await store.loadFolder(folderId ?? null)
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
   } finally {
     loading.value = false
   }

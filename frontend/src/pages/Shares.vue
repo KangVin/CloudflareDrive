@@ -17,7 +17,13 @@ const message = useMessage()
 const checkedRowKeys = ref<string[]>([])
 const selectedShares = computed(() => store.shares.filter((s) => checkedRowKeys.value.includes(s.id)))
 
-onMounted(() => store.loadShares())
+onMounted(async () => {
+  try {
+    await store.loadShares()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
+  }
+})
 
 function copyToken(token: string) {
   navigator.clipboard.writeText(`${window.location.origin}/s/${token}`)
