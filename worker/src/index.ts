@@ -4,6 +4,10 @@ import type { Env } from './types/env'
 import files from './routes/files'
 import trash from './routes/trash'
 import shares from './routes/shares'
+import { createFileRepository } from './repositories/fileRepository'
+import { createStorageRepository } from './repositories/storageRepository'
+import { createShareRepository } from './repositories/shareRepository'
+import { createShareService } from './services/shareService'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -26,8 +30,28 @@ app.route('/api/v1/files', files)
 app.route('/api/v1/trash', trash)
 app.route('/api/v1/shares', shares)
 
-app.get('/api/v1/s/:token', (c) => {
-  return c.json({ error: 'Not found' }, 404)
+app.get('/api/v1/s/:token', async (c) => {
+  const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+  const result = await svc.getPublic(c.req.param('token'))
+  if (!result) return c.json({ error: 'Not found or expired' }, 404)
+  return c.json(result)
+})
+
+app.get('/api/v1/s/:token/download', async (c) => {
+  const shareRepo = createShareRepository(c.env.DB)
+  const fileRepo = createFileRepository(c.env.DB)
+  const share = await shareRepo.findByToken(c.req.param('token'))
+  if (!share) return c.json({ error: 'Not found' }, 404)
+  if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Expired' }, 410)
+  const record = await fileRepo.findById(share.fileId)
+  if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
+  const storage = createStorageRepository(c.env.STORAGE)
+  const obj = await storage.download(record.r2Key)
+  if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('Content-Disposition', `inline; filename="${record.name}"`)
+  return new Response(obj.body, { headers })
 })
 
 export default app

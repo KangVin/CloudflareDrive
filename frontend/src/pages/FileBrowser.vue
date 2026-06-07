@@ -13,6 +13,7 @@ import {
   NSpin,
   NPopconfirm,
   NUpload,
+  NSelect,
   NTooltip,
   useMessage,
   type UploadCustomRequestOptions,
@@ -27,10 +28,12 @@ import {
   CloseOutline,
   MoveOutline,
   EyeOutline,
+  ShareOutline,
 } from '@vicons/ionicons5'
 import { useFileStore } from '@/stores/fileStore'
 import { searchFiles } from '@/api/search'
 import { listFiles, updateFile } from '@/api/files'
+import { createShare } from '@/api/shares'
 import { formatSize } from '@/utils/format'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
@@ -153,6 +156,38 @@ async function openPreview(file: FileRecord) {
     message.error('Failed to load preview')
   } finally {
     previewLoading.value = false
+  }
+}
+
+const shareTarget = ref<FileRecord | null>(null)
+const showShareModal = ref(false)
+const shareExpiryDays = ref<number>(0)
+const sharingLoading = ref(false)
+
+function openShareModal(file: FileRecord) {
+  shareTarget.value = file
+  shareExpiryDays.value = 0
+  showShareModal.value = true
+}
+
+async function handleCreateShare() {
+  if (!shareTarget.value) return
+  sharingLoading.value = true
+  try {
+    let expiresAt: string | null = null
+    if (shareExpiryDays.value > 0) {
+      const d = new Date()
+      d.setDate(d.getDate() + shareExpiryDays.value)
+      expiresAt = d.toISOString()
+    }
+    await createShare(shareTarget.value.id, expiresAt)
+    message.success('Share link created')
+    showShareModal.value = false
+    shareTarget.value = null
+  } catch {
+    message.error('Failed to create share link')
+  } finally {
+    sharingLoading.value = false
   }
 }
 
@@ -367,7 +402,7 @@ const columns: DataTableColumn<FileRecord>[] = [
   {
     title: 'Actions',
     key: 'actions',
-    width: 180,
+    width: 220,
     render(row) {
       return h(NSpace, null, [
         h(NTooltip, null, {
@@ -393,6 +428,13 @@ const columns: DataTableColumn<FileRecord>[] = [
               default: () => 'Preview',
             })
           : null,
+        h(NTooltip, null, {
+          trigger: () =>
+            h(NButton, { size: 'tiny', quaternary: true, onClick: () => openShareModal(row) }, () =>
+              h(NIcon, null, () => h(ShareOutline)),
+            ),
+          default: () => 'Share',
+        }),
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row) },
@@ -534,6 +576,28 @@ const columns: DataTableColumn<FileRecord>[] = [
       </NSpace>
       <template #footer>
         <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">Move here</NButton>
+      </template>
+    </NModal>
+
+    <NModal v-model:show="showShareModal" title="Create Share Link" preset="card" style="width: 400px">
+      <p v-if="shareTarget" style="margin-top: 0">
+        Share <strong>{{ shareTarget.name }}</strong> via a public link
+      </p>
+      <NSpace vertical>
+        <label>Expiry</label>
+        <NSelect
+          v-model:value="shareExpiryDays"
+          :options="[
+            { label: '1 day', value: 1 },
+            { label: '7 days', value: 7 },
+            { label: '30 days', value: 30 },
+            { label: 'Never', value: 0 },
+          ]"
+          placeholder="Select expiry..."
+        />
+      </NSpace>
+      <template #footer>
+        <NButton type="primary" :disabled="sharingLoading" @click="handleCreateShare">Create Link</NButton>
       </template>
     </NModal>
 
