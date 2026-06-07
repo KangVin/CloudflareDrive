@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
 import { TrashOutline, LinkOutline } from '@vicons/ionicons5'
 import { useShareStore } from '@/stores/shareStore'
@@ -7,9 +7,15 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import type { ShareRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
+const DEFAULT_PAGE_SIZE = 50
+const tablePagination = { pageSize: DEFAULT_PAGE_SIZE }
+
 const store = useShareStore()
 const settings = useSettingsStore()
 const message = useMessage()
+
+const checkedRowKeys = ref<string[]>([])
+const selectedShares = computed(() => store.shares.filter((s) => checkedRowKeys.value.includes(s.id)))
 
 onMounted(() => store.loadShares())
 
@@ -21,6 +27,18 @@ function copyToken(token: string) {
 async function handleRevoke(share: ShareRecord) {
   try {
     await store.revoke(share.id)
+    checkedRowKeys.value = checkedRowKeys.value.filter((id) => id !== share.id)
+    message.success(settings.t('revoke'))
+  } catch {
+    message.error(settings.t('failedToRevoke'))
+  }
+}
+
+async function handleBatchRevoke() {
+  if (selectedShares.value.length === 0) return
+  try {
+    await store.batchRevoke(selectedShares.value.map((s) => s.id))
+    checkedRowKeys.value = []
     message.success(settings.t('revoke'))
   } catch {
     message.error(settings.t('failedToRevoke'))
@@ -28,6 +46,7 @@ async function handleRevoke(share: ShareRecord) {
 }
 
 const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
+  { type: 'selection' },
   { title: settings.t('file'), key: 'fileName', minWidth: 180, ellipsis: { tooltip: true } },
   {
     title: settings.t('type'),
@@ -102,9 +121,26 @@ const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
 <template>
   <div style="padding: 16px">
     <h2 style="margin-top: 0">{{ settings.t('shareLinks') }}</h2>
+    <NSpace v-if="checkedRowKeys.length > 0" style="margin-bottom: 12px" align="center">
+      <span>{{ checkedRowKeys.length }} {{ settings.t('selected') }}</span>
+      <NPopconfirm @positive-click="handleBatchRevoke">
+        <template #trigger>
+          <NButton size="small" type="error">{{ settings.t('revoke') }}</NButton>
+        </template>
+        {{ settings.t('revokeSelectedConfirm') }}
+      </NPopconfirm>
+    </NSpace>
     <NSpin :show="store.loading">
       <div v-if="store.shares.length > 0" class="table-wrap">
-        <NDataTable :columns="columns" :data="store.shares" :bordered="false" :single-line="false" />
+        <NDataTable
+          v-model:checked-row-keys="checkedRowKeys"
+          :columns="columns"
+          :data="store.shares"
+          :bordered="false"
+          :single-line="false"
+          :row-key="(row: ShareRecord) => row.id"
+          :pagination="tablePagination"
+        />
       </div>
       <NEmpty v-else :description="settings.t('noShareLinks')" />
     </NSpin>

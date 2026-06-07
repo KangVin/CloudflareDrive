@@ -111,6 +111,14 @@ export function createFileRepository(db: D1Database) {
     return results.map(mapRow)
   }
 
+  async function findByParentIncludingTrashed(parentId: string): Promise<FileRecord[]> {
+    const { results } = await db
+      .prepare('SELECT * FROM files WHERE parent_id = ? ORDER BY type DESC, name ASC')
+      .bind(parentId)
+      .all()
+    return results.map(mapRow)
+  }
+
   async function countByR2Key(r2Key: string, excludeId?: string): Promise<number> {
     const query = excludeId
       ? 'SELECT COUNT(*) AS count FROM files WHERE r2_key = ? AND id != ?'
@@ -149,6 +157,7 @@ export function createFileRepository(db: D1Database) {
     softDelete,
     restore,
     findTrashed,
+    findByParentIncludingTrashed,
     hardDelete,
     countByR2Key,
     search,

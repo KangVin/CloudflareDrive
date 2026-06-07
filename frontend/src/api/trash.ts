@@ -17,3 +17,8 @@ export async function permanentDelete(id: string): Promise<void> {
   const res = await fetch(`${BASE}/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete file')
 }
+
+export async function emptyTrash(): Promise<void> {
+  const res = await fetch(`${BASE}/empty`, { method: 'POST' })
+  if (!res.ok) throw new Error('Failed to empty trash')
+}

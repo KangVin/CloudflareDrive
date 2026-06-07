@@ -26,5 +26,12 @@ export const useShareStore = defineStore('shares', () => {
     await loadShares()
   }
 
-  return { shares, loading, loadShares, create, revoke }
+  async function batchRevoke(ids: string[]) {
+    for (const id of ids) {
+      await api.revokeShare(id)
+    }
+    await loadShares()
+  }
+
+  return { shares, loading, loadShares, create, revoke, batchRevoke }
 })

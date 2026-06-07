@@ -12,6 +12,12 @@ trash.get('/', async (c) => {
   return c.json(items)
 })
 
+trash.post('/empty', async (c) => {
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  await svc.emptyTrash()
+  return c.body(null, 204)
+})
+
 trash.post('/:id/restore', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   await svc.restore(c.req.param('id'))

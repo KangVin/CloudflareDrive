@@ -26,5 +26,24 @@ export const useTrashStore = defineStore('trash', () => {
     await loadTrashed()
   }
 
-  return { files, loading, loadTrashed, restore, permanentDelete }
+  async function batchRestore(ids: string[]) {
+    for (const id of ids) {
+      await api.restoreFile(id)
+    }
+    await loadTrashed()
+  }
+
+  async function batchPermanentDelete(ids: string[]) {
+    for (const id of ids) {
+      await api.permanentDelete(id)
+    }
+    await loadTrashed()
+  }
+
+  async function emptyTrash() {
+    await api.emptyTrash()
+    await loadTrashed()
+  }
+
+  return { files, loading, loadTrashed, restore, permanentDelete, batchRestore, batchPermanentDelete, emptyTrash }
 })

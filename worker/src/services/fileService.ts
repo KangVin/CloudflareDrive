@@ -132,9 +132,11 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     const file = await fileRepo.findById(id)
     if (!file) return
     if (file.type === 'folder') {
-      const children = await fileRepo.findByParent(id)
+      const children = await fileRepo.findByParentIncludingTrashed(id)
       for (const child of children) {
-        await restore(child.id)
+        if (child.isTrashed) {
+          await restore(child.id)
+        }
       }
     }
     await fileRepo.restore(id)
@@ -142,6 +144,13 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
 
   async function listTrashed(): Promise<FileRecord[]> {
     return await fileRepo.findTrashed()
+  }
+
+  async function emptyTrash(): Promise<void> {
+    const trashed = await fileRepo.findTrashed()
+    for (const file of trashed) {
+      await permanentDelete(file.id)
+    }
   }
 
   async function permanentDelete(id: string): Promise<void> {
@@ -271,6 +280,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo) 
     trash,
     restore,
     listTrashed,
+    emptyTrash,
     permanentDelete,
     checkHash,
     instant,
