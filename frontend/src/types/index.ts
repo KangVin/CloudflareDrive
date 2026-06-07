@@ -40,6 +40,9 @@ export interface PublicShareFolder {
   id: string
   name: string
   files: PublicShareFileItem[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface PublicShareFile {

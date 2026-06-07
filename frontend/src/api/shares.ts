@@ -23,10 +23,19 @@ export async function revokeShare(id: string): Promise<void> {
   return fetchVoid(`${BASE}/${id}`, { method: 'DELETE' }, 'Failed to revoke share')
 }
 
-export async function getPublicShare(token: string): Promise<PublicShareResult> {
-  return fetchJson(`/api/v1/s/${token}`, undefined, 'Share not found or expired')
+export async function getPublicShare(token: string, page = 1, pageSize = 50): Promise<PublicShareResult> {
+  return fetchJson(`/api/v1/s/${token}?page=${page}&pageSize=${pageSize}`, undefined, 'Share not found or expired')
 }
 
-export async function getPublicBrowse(token: string, folderId: string): Promise<PublicShareFolder> {
-  return fetchJson(`/api/v1/s/${token}/browse/${folderId}`, undefined, 'Folder not found')
+export async function getPublicBrowse(
+  token: string,
+  folderId: string,
+  page = 1,
+  pageSize = 50,
+): Promise<PublicShareFolder> {
+  return fetchJson(
+    `/api/v1/s/${token}/browse/${folderId}?page=${page}&pageSize=${pageSize}`,
+    undefined,
+    'Folder not found',
+  )
 }

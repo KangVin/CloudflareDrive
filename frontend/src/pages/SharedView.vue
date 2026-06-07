@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, shallowRef, onMounted } from 'vue'
+import { ref, shallowRef, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NSpin, NButton, NEmpty, NIcon, useMessage } from 'naive-ui'
+import { NSpin, NButton, NEmpty, NIcon, NPagination, useMessage } from 'naive-ui'
 import { DocumentOutline, DownloadOutline, FolderOpenOutline, ArrowBackOutline } from '@vicons/ionicons5'
 import { getPublicShare, getPublicBrowse } from '@/api/shares'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { PublicShareResult, PublicShareFolder, PublicShareFileItem } from '@/types'
+
+const DEFAULT_PAGE_SIZE = 50
 
 const route = useRoute()
 const router = useRouter()
@@ -14,18 +16,27 @@ const message = useMessage()
 const loading = ref(true)
 const error = ref<string | null>(null)
 const data = shallowRef<PublicShareResult | null>(null)
+const page = ref(1)
+const pageSize = ref(DEFAULT_PAGE_SIZE)
 
 /** Stack of previous folder views for back navigation: each entry contains the folder data to restore */
-const folderStack = shallowRef<Array<{ id: string; name: string; files: PublicShareFileItem[] }>>([])
+const folderStack = shallowRef<
+  Array<{ id: string; name: string; files: PublicShareFileItem[]; page: number; pageSize: number; total: number }>
+>([])
 
 /** Currently displayed folder data (for folder-type shares) */
 const currentFolder = shallowRef<PublicShareFolder | null>(null)
+
+const totalPages = computed(() => {
+  if (!currentFolder.value) return 1
+  return Math.max(1, Math.ceil(currentFolder.value.total / currentFolder.value.pageSize))
+})
 
 async function loadRoot() {
   loading.value = true
   const token = route.params.token as string
   try {
-    const result = await getPublicShare(token)
+    const result = await getPublicShare(token, page.value, pageSize.value)
     data.value = result
     if (result.type === 'folder') {
       currentFolder.value = result
@@ -45,8 +56,12 @@ async function openFolder(folderId: string, _folderName: string) {
     const result = await getPublicBrowse(token, folderId)
     const cur = currentFolder.value
     if (cur) {
-      folderStack.value = [...folderStack.value, { id: cur.id, name: cur.name, files: cur.files }]
+      folderStack.value = [
+        ...folderStack.value,
+        { id: cur.id, name: cur.name, files: cur.files, page: cur.page, pageSize: cur.pageSize, total: cur.total },
+      ]
     }
+    page.value = 1
     currentFolder.value = result
   } catch (e) {
     message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
@@ -58,8 +73,37 @@ async function openFolder(folderId: string, _folderName: string) {
 function goBack() {
   const prev = folderStack.value.pop()
   if (prev) {
-    currentFolder.value = { type: 'folder', id: prev.id, name: prev.name, files: prev.files }
+    currentFolder.value = {
+      type: 'folder',
+      id: prev.id,
+      name: prev.name,
+      files: prev.files,
+      total: prev.total,
+      page: prev.page,
+      pageSize: prev.pageSize,
+    }
+    page.value = prev.page
+    pageSize.value = prev.pageSize
     folderStack.value = [...folderStack.value]
+  }
+}
+
+async function onPageChange(newPage: number) {
+  page.value = newPage
+  loading.value = true
+  const token = route.params.token as string
+  try {
+    const cur = currentFolder.value
+    if (!cur) return
+    const isRoot = folderStack.value.length === 0
+    const result = isRoot
+      ? await getPublicShare(token, newPage, pageSize.value)
+      : await getPublicBrowse(token, cur.id, newPage, pageSize.value)
+    if (result.type === 'folder') currentFolder.value = result
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
+  } finally {
+    loading.value = false
   }
 }
 
@@ -125,6 +169,14 @@ onMounted(loadRoot)
               ></template>
               {{ settings.t('download') }}
             </NButton>
+          </div>
+          <div v-if="totalPages > 1" style="display: flex; justify-content: center; margin-top: 16px">
+            <NPagination
+              :page="currentFolder.page"
+              :page-size="currentFolder.pageSize"
+              :page-count="totalPages"
+              @update:page="onPageChange"
+            />
           </div>
         </template>
       </div>

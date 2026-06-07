@@ -1,4 +1,4 @@
-import type { CreateShareInput } from '../types/models'
+import type { CreateShareInput, FileRecord } from '../types/models'
 import type { createFileRepository } from '../repositories/fileRepository'
 import type { createShareRepository } from '../repositories/shareRepository'
 
@@ -47,26 +47,36 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
     return false
   }
 
-  async function getPublic(token: string) {
+  const DEFAULT_PAGE_SIZE = 50
+
+  /** Map a file record to a public share file item */
+  function toFileItem(c: FileRecord) {
+    return {
+      id: c.id,
+      name: c.name,
+      type: c.type,
+      mimeType: c.mimeType,
+      size: c.size,
+      sizeFormatted: c.type === 'file' ? formatSize(c.size) : '-',
+    }
+  }
+
+  async function getPublic(token: string, page = 1, pageSize = DEFAULT_PAGE_SIZE) {
     const share = await shareRepo.findByToken(token)
     if (!share) return null
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) return null
     const file = await fileRepo.findById(share.fileId)
     if (!file || file.isTrashed) return null
     if (file.type === 'folder') {
-      const children = await fileRepo.findByParent(file.id)
+      const result = await fileRepo.findByParentPaginated(file.id, page, pageSize)
       return {
         type: 'folder' as const,
         id: file.id,
         name: file.name,
-        files: children.map((c) => ({
-          id: c.id,
-          name: c.name,
-          type: c.type,
-          mimeType: c.mimeType,
-          size: c.size,
-          sizeFormatted: c.type === 'file' ? formatSize(c.size) : '-',
-        })),
+        files: result.items.map(toFileItem),
+        total: result.total,
+        page,
+        pageSize,
       }
     }
     return {
@@ -79,26 +89,22 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
     }
   }
 
-  async function getPublicBrowse(token: string, folderId: string) {
+  async function getPublicBrowse(token: string, folderId: string, page = 1, pageSize = DEFAULT_PAGE_SIZE) {
     const share = await shareRepo.findByToken(token)
     if (!share) return null
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) return null
     if (!(await isDescendant(folderId, share.fileId))) return null
     const folder = await fileRepo.findById(folderId)
     if (!folder || folder.isTrashed || folder.type !== 'folder') return null
-    const children = await fileRepo.findByParent(folderId)
+    const result = await fileRepo.findByParentPaginated(folderId, page, pageSize)
     return {
       type: 'folder' as const,
       id: folder.id,
       name: folder.name,
-      files: children.map((c) => ({
-        id: c.id,
-        name: c.name,
-        type: c.type,
-        mimeType: c.mimeType,
-        size: c.size,
-        sizeFormatted: c.type === 'file' ? formatSize(c.size) : '-',
-      })),
+      files: result.items.map(toFileItem),
+      total: result.total,
+      page,
+      pageSize,
     }
   }
 

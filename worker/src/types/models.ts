@@ -49,3 +49,9 @@ export interface CreateShareInput {
   token: string
   expiresAt: string | null
 }
+
+/** Generic paginated result wrapper */
+export interface PaginatedResult<T> {
+  items: T[]
+  total: number
+}

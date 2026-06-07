@@ -69,7 +69,9 @@ app.route('/api/v1/shares', shares)
 app.get('/api/v1/s/:token', (c) =>
   withCache(c.req.raw, c.executionCtx, async () => {
     const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
-    const result = await svc.getPublic(c.req.param('token'))
+    const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
+    const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
+    const result = await svc.getPublic(c.req.param('token'), page, pageSize)
     if (!result) return { status: 404, body: { error: 'Not found or expired' } }
     return { status: 200, body: result }
   }),
@@ -78,7 +80,9 @@ app.get('/api/v1/s/:token', (c) =>
 app.get('/api/v1/s/:token/browse/:folderId', (c) =>
   withCache(c.req.raw, c.executionCtx, async () => {
     const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
-    const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'))
+    const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
+    const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
+    const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'), page, pageSize)
     if (!result) return { status: 404, body: { error: 'Not found' } }
     return { status: 200, body: result }
   }),

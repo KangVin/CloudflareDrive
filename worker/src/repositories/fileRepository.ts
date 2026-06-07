@@ -1,4 +1,4 @@
-import type { FileRecord, CreateFileInput, UpdateFileInput } from '../types/models'
+import type { FileRecord, CreateFileInput, UpdateFileInput, PaginatedResult } from '../types/models'
 
 function mapRow(row: Record<string, unknown>): FileRecord {
   return {
@@ -17,6 +17,46 @@ function mapRow(row: Record<string, unknown>): FileRecord {
 }
 
 export function createFileRepository(db: D1Database) {
+  async function countByParent(parentId: string | null): Promise<number> {
+    if (parentId === null) {
+      const row = await db
+        .prepare('SELECT COUNT(*) AS count FROM files WHERE parent_id IS NULL AND is_trashed = 0')
+        .first<{ count: number }>()
+      return row?.count ?? 0
+    }
+    const row = await db
+      .prepare('SELECT COUNT(*) AS count FROM files WHERE parent_id = ? AND is_trashed = 0')
+      .bind(parentId)
+      .first<{ count: number }>()
+    return row?.count ?? 0
+  }
+
+  async function findByParentPaginated(
+    parentId: string | null,
+    page: number,
+    pageSize: number,
+  ): Promise<PaginatedResult<FileRecord>> {
+    const total = await countByParent(parentId)
+    const offset = (page - 1) * pageSize
+    let results: { results: Record<string, unknown>[] }
+    if (parentId === null) {
+      results = await db
+        .prepare(
+          'SELECT * FROM files WHERE parent_id IS NULL AND is_trashed = 0 ORDER BY type DESC, name ASC LIMIT ? OFFSET ?',
+        )
+        .bind(pageSize, offset)
+        .all()
+    } else {
+      results = await db
+        .prepare(
+          'SELECT * FROM files WHERE parent_id = ? AND is_trashed = 0 ORDER BY type DESC, name ASC LIMIT ? OFFSET ?',
+        )
+        .bind(parentId, pageSize, offset)
+        .all()
+    }
+    return { items: results.results.map(mapRow), total }
+  }
+
   async function findByParent(parentId: string | null): Promise<FileRecord[]> {
     if (parentId === null) {
       const { results } = await db
@@ -150,6 +190,8 @@ export function createFileRepository(db: D1Database) {
 
   return {
     findByParent,
+    findByParentPaginated,
+    countByParent,
     findById,
     findByHash,
     create,
