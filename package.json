@@ -1,0 +1,15 @@
+{
+  "name": "cloudflare-drive",
+  "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"],
+    "nodeLinker": "hoisted"
+  },
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:worker": "pnpm --filter worker dev",
+    "build:frontend": "pnpm --filter frontend build",
+    "typecheck": "pnpm --filter frontend typecheck && pnpm --filter worker typecheck",
+    "test": "pnpm --filter frontend test && pnpm --filter worker test"
+  }
+}

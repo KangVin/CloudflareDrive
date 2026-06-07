@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.wrangler/
+*.local.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.production
