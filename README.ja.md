@@ -240,4 +240,4 @@ wrangler deploy
 
 ## ライセンス
 
-このプロジェクトは MIT License の下で公開されています。
+このプロジェクトは Apache License, Version 2.0 の下で公開されています。詳細は [LICENSE](LICENSE) ファイルを参照してください。

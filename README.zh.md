@@ -270,4 +270,4 @@ wrangler deploy
 
 ## 许可证
 
-本项目基于 MIT License 许可。
+本项目基于 Apache License, Version 2.0 许可。详见 [LICENSE](LICENSE) 文件。
