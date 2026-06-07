@@ -712,7 +712,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
             <template #prefix>
               <NIcon><SearchOutline /></NIcon>
             </template>
-            <template #suffix v-if="isSearchActive">
+            <template v-if="isSearchActive" #suffix>
               <NIcon style="cursor: pointer" @click="clearSearch"><CloseOutline /></NIcon>
             </template>
           </NInput>
@@ -766,6 +766,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
       <NSpin :show="loading || isSearching">
         <div v-if="displayedFiles.length > 0" class="file-table">
           <NDataTable
+            v-model:checked-row-keys="checkedRowKeys"
             :columns="columns"
             :data="displayedFiles"
             :bordered="false"
@@ -773,7 +774,6 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
             :row-key="(row: FileRecord) => row.id"
             :row-props="(row: FileRecord) => ({ onContextmenu: (e: MouseEvent) => handleContextMenu(e, row) })"
             :pagination="tablePagination"
-            v-model:checked-row-keys="checkedRowKeys"
           />
         </div>
         <NEmpty v-else :description="settings.t('noFilesYet')" />

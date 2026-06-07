@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import type { Env } from '../types/env'
 import { createFileRepository } from '../repositories/fileRepository'
-import { createStorageRepository } from '../repositories/storageRepository'
 import { createShareRepository } from '../repositories/shareRepository'
 import { createShareService } from '../services/shareService'
 
