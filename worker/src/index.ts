@@ -11,6 +11,40 @@ import { createShareService } from './services/shareService'
 
 const app = new Hono<{ Bindings: Env }>()
 
+/** Wraps a handler with Cache API: check edge cache first, store 200/404 responses */
+async function withCache(
+  req: Request,
+  ctx: ExecutionContext,
+  handler: () => Promise<{ status: number; body: unknown }>,
+): Promise<Response> {
+  try {
+    const cache = caches.default
+    const cached = await cache.match(req)
+    if (cached) return cached
+
+    const { status, body } = await handler()
+
+    const ttl = status === 200 ? 10 : 30
+    const response = new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': `public, max-age=${ttl}`,
+      },
+    })
+
+    ctx.waitUntil(cache.put(req, response.clone()))
+    return response
+  } catch {
+    // Cache API unavailable (e.g. Cloudflare Access), fall back to non-cached
+    const { status, body } = await handler()
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+}
+
 app.use('/api/*', cors())
 
 app.onError((err, c) => {
@@ -30,19 +64,23 @@ app.route('/api/v1/files', files)
 app.route('/api/v1/trash', trash)
 app.route('/api/v1/shares', shares)
 
-app.get('/api/v1/s/:token', async (c) => {
-  const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
-  const result = await svc.getPublic(c.req.param('token'))
-  if (!result) return c.json({ error: 'Not found or expired' }, 404)
-  return c.json(result)
-})
+app.get('/api/v1/s/:token', (c) =>
+  withCache(c.req.raw, c.executionCtx, async () => {
+    const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+    const result = await svc.getPublic(c.req.param('token'))
+    if (!result) return { status: 404, body: { error: 'Not found or expired' } }
+    return { status: 200, body: result }
+  }),
+)
 
-app.get('/api/v1/s/:token/browse/:folderId', async (c) => {
-  const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
-  const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'))
-  if (!result) return c.json({ error: 'Not found' }, 404)
-  return c.json(result)
-})
+app.get('/api/v1/s/:token/browse/:folderId', (c) =>
+  withCache(c.req.raw, c.executionCtx, async () => {
+    const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+    const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'))
+    if (!result) return { status: 404, body: { error: 'Not found' } }
+    return { status: 200, body: result }
+  }),
+)
 
 app.get('/api/v1/s/:token/download', async (c) => {
   const shareRepo = createShareRepository(c.env.DB)
