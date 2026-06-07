@@ -5,7 +5,7 @@ import { NSpin, NButton, NEmpty, NIcon } from 'naive-ui'
 import { DocumentOutline, DownloadOutline, FolderOpenOutline } from '@vicons/ionicons5'
 import { getPublicShare } from '@/api/shares'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { PublicShareResult } from '@/types'
+import type { PublicShareResult, PublicShareFolder } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,13 +51,25 @@ onMounted(async () => {
             {{ data.name }}
           </h2>
           <div
-            v-for="file in data.files"
+            v-for="file in (data as PublicShareFolder).files"
             :key="file.id"
             style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee"
           >
             <NIcon><DocumentOutline /></NIcon>
             <span style="flex: 1">{{ file.name }}</span>
             <span style="color: #888">{{ file.sizeFormatted }}</span>
+            <NButton
+              v-if="file.type === 'file'"
+              size="tiny"
+              :href="`/api/v1/s/${route.params.token}/download/${file.id}`"
+              tag="a"
+              target="_blank"
+            >
+              <template #icon
+                ><NIcon><DownloadOutline /></NIcon
+              ></template>
+              {{ settings.t('download') }}
+            </NButton>
           </div>
         </template>
       </div>

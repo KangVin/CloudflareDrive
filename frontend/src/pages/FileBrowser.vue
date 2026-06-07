@@ -5,6 +5,7 @@ import {
   NButton,
   NDataTable,
   NBreadcrumb,
+  NBreadcrumbItem,
   NIcon,
   NModal,
   NInput,
@@ -38,6 +39,9 @@ import { searchFiles } from '@/api/search'
 import { copyFile, listFiles, trashFile, updateFile } from '@/api/files'
 import { createShare } from '@/api/shares'
 import { formatSize } from '@/utils/format'
+import { IMAGE_TYPES, TEXT_TYPES } from '@/utils/constants'
+import { useUpload } from '@/composables/useUpload'
+import UploadQueue from '@/components/UploadQueue.vue'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
@@ -58,6 +62,7 @@ const showRenameModal = ref(false)
 const renameName = ref('')
 
 const checkedRowKeys = ref<string[]>([])
+const { uploadTasks, createTask, updateTask, uploadFile, uploadFiles, clearFinished } = useUpload()
 const selectedFiles = computed(() => displayedFiles.value.filter((file) => checkedRowKeys.value.includes(file.id)))
 const clipboardItems = ref<FileRecord[]>([])
 const clipboardMode = ref<'copy' | 'cut' | null>(null)
@@ -101,20 +106,23 @@ function handleContextMenuSelect(key: string) {
   }
 }
 
-const contextMenuOptions = computed<DropdownOption[]>(() => [
-  { label: settings.t('open'), key: 'open' },
-  { label: settings.t('preview'), key: 'preview' },
-  { type: 'divider' },
-  { label: settings.t('rename'), key: 'rename' },
-  { label: settings.t('move'), key: 'move' },
-  { label: settings.t('share'), key: 'share' },
-  { type: 'divider' },
-  { label: settings.t('copy'), key: 'copy' },
-  { label: settings.t('cut'), key: 'cut' },
-  { label: settings.t('pasteHere'), key: 'paste' },
-  { type: 'divider' },
-  { label: settings.t('delete'), key: 'delete' },
-])
+const contextMenuOptions = computed<DropdownOption[]>(() => {
+  const isFolder = contextMenuRow.value?.type === 'folder'
+  return [
+    ...(isFolder ? [{ label: settings.t('open'), key: 'open' }] : []),
+    { label: settings.t('preview'), key: 'preview' },
+    { type: 'divider' },
+    { label: settings.t('rename'), key: 'rename' },
+    { label: settings.t('move'), key: 'move' },
+    { label: settings.t('share'), key: 'share' },
+    { type: 'divider' },
+    { label: settings.t('copy'), key: 'copy' },
+    { label: settings.t('cut'), key: 'cut' },
+    { label: settings.t('pasteHere'), key: 'paste' },
+    { type: 'divider' },
+    { label: settings.t('delete'), key: 'delete' },
+  ]
+})
 
 function handleKeydown(e: KeyboardEvent) {
   if (
@@ -203,22 +211,14 @@ async function handleDrop(e: DragEvent) {
   e.preventDefault()
   isDragging.value = false
   dragCounter = 0
-  const files = e.dataTransfer?.files
-  if (!files || files.length === 0) return
-  const parentId = store.currentFolderId
-  const uploadUrl = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch(uploadUrl, { method: 'POST', body: form })
-      if (!res.ok) throw new Error('Upload failed')
-    } catch {
-      message.error(`${settings.t('failedToUpload')}: ${file.name}`)
-    }
-  }
-  message.success(settings.t('uploaded'))
+  const dtFiles = e.dataTransfer?.files
+  if (!dtFiles || dtFiles.length === 0) return
+  const files = Array.from(dtFiles)
+  let completedCount = 0
+  await uploadFiles(files, store.currentFolderId, (_file, success) => {
+    if (success) completedCount++
+  })
+  if (completedCount > 0) message.success(settings.t('uploaded'))
   await store.loadFolder(store.currentFolderId)
 }
 
@@ -234,26 +234,6 @@ const showPreviewModal = ref(false)
 const previewContent = ref<string | null>(null)
 const previewUrl = ref<string | null>(null)
 const previewLoading = ref(false)
-
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp']
-const TEXT_TYPES = [
-  'text/plain',
-  'text/html',
-  'text/css',
-  'text/javascript',
-  'application/json',
-  'application/xml',
-  'text/markdown',
-  'text/x-markdown',
-  'text/x-python',
-  'text/x-java',
-  'text/x-c',
-  'text/x-c++',
-  'text/x-typescript',
-  'text/x-sh',
-  'text/x-yaml',
-  'text/x-toml',
-]
 
 async function openPreview(file: FileRecord) {
   previewTarget.value = file
@@ -464,8 +444,8 @@ async function pasteClipboardItems() {
     checkedRowKeys.value = []
     message.success(settings.t('pasted'))
     await init()
-  } catch {
-    message.error(settings.t('failedToPaste'))
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToPaste'))
   }
 }
 
@@ -527,38 +507,29 @@ async function handleMove() {
     moveTargets.value = []
     checkedRowKeys.value = []
     await init()
-  } catch {
-    message.error(settings.t('failedToMove'))
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : settings.t('failedToMove'))
   }
 }
 
 function handleUpload(options: UploadCustomRequestOptions) {
-  const form = new FormData()
-  form.append('file', options.file.file as File)
-  const parentId = store.currentFolderId
-  const url = parentId ? `/api/v1/files/upload?parentId=${parentId}` : '/api/v1/files/upload'
-  const xhr = new XMLHttpRequest()
-  xhr.open('POST', url)
-  xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
-      options.onProgress?.({ percent: Math.round((e.loaded / e.total) * 100) })
-    }
-  }
-  xhr.onload = async () => {
-    if (xhr.status >= 200 && xhr.status < 300) {
+  const file = options.file.file as File
+  const task = createTask(file)
+  uploadFile(file, store.currentFolderId, (percent) => {
+    updateTask(task.id, { percent })
+    options.onProgress?.({ percent })
+  })
+    .then(async () => {
+      updateTask(task.id, { percent: 100, status: 'success' })
       options.onFinish?.()
       message.success(settings.t('uploaded'))
       await store.loadFolder(store.currentFolderId)
-    } else {
+    })
+    .catch(() => {
+      updateTask(task.id, { status: 'error' })
       options.onError?.()
       message.error(settings.t('failedToUpload'))
-    }
-  }
-  xhr.onerror = () => {
-    options.onError?.()
-    message.error(settings.t('failedToUpload'))
-  }
-  xhr.send(form)
+    })
 }
 
 const columns = computed<DataTableColumn<FileRecord>[]>(() => [
@@ -691,7 +662,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
     </div>
     <NSpace vertical size="large">
       <NSpace align="center" justify="space-between">
-        <NBreadcrumb v-if="!isSearchActive">
+        <NBreadcrumb v-if="!isSearchActive" separator="›">
           <NBreadcrumbItem v-for="crumb in store.currentBreadcrumbs" :key="crumb.id ?? 'root'">
             <a v-if="crumb.id !== store.currentFolderId" href="#" @click.prevent="navigateToBreadcrumb(crumb.id)">
               {{ crumb.id === null ? settings.t('root') : crumb.name }}
@@ -716,14 +687,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
               <NIcon style="cursor: pointer" @click="clearSearch"><CloseOutline /></NIcon>
             </template>
           </NInput>
-          <NUpload
-            v-if="!isSearchActive"
-            :custom-request="handleUpload"
-            :show-file-list="false"
-            accept="*"
-            multiple
-            show-progress
-          >
+          <NUpload v-if="!isSearchActive" :custom-request="handleUpload" :show-file-list="false" accept="*" multiple>
             <NButton>
               <template #icon
                 ><NIcon><CloudUploadOutline /></NIcon
@@ -762,6 +726,8 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
           settings.t('pasteHere')
         }}</NButton>
       </NSpace>
+
+      <UploadQueue :tasks="uploadTasks" @clear-finished="clearFinished" />
 
       <NSpin :show="loading || isSearching">
         <div v-if="displayedFiles.length > 0" class="file-table">
@@ -806,7 +772,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
 
     <NModal v-model:show="showMoveModal" :title="settings.t('moveTo')" preset="card" style="width: 420px">
       <NSpace vertical>
-        <NBreadcrumb>
+        <NBreadcrumb separator="›">
           <NBreadcrumbItem v-for="crumb in moveBreadcrumbs" :key="crumb.id ?? 'root'">
             <a v-if="crumb.id !== moveCurrentFolderId" href="#" @click.prevent="navigateMoveFolder(crumb.id)">
               {{ crumb.id === null ? settings.t('root') : crumb.name }}
@@ -845,9 +811,9 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
         <NSelect
           v-model:value="shareExpiryDays"
           :options="[
-            { label: '1', value: 1 },
-            { label: '7', value: 7 },
-            { label: '30', value: 30 },
+            { label: `1 ${settings.t('day')}`, value: 1 },
+            { label: `7 ${settings.t('days')}`, value: 7 },
+            { label: `30 ${settings.t('days')}`, value: 30 },
             { label: settings.t('never'), value: 0 },
           ]"
           :placeholder="settings.t('expiry')"

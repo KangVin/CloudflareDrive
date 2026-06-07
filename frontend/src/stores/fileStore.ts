@@ -18,7 +18,7 @@ export const useFileStore = defineStore('files', () => {
   }
 
   async function buildBreadcrumbs(folderId: string | null) {
-    const crumbs: { id: string | null; name: string }[] = [{ id: null, name: 'Root' }]
+    const crumbs: { id: string | null; name: string }[] = [{ id: null, name: '' }]
     let current = folderId
     const stack: { id: string | null; name: string }[] = []
     while (current) {

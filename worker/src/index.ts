@@ -54,4 +54,21 @@ app.get('/api/v1/s/:token/download', async (c) => {
   return new Response(obj.body, { headers })
 })
 
+app.get('/api/v1/s/:token/download/:fileId', async (c) => {
+  const shareRepo = createShareRepository(c.env.DB)
+  const fileRepo = createFileRepository(c.env.DB)
+  const share = await shareRepo.findByToken(c.req.param('token'))
+  if (!share) return c.json({ error: 'Not found' }, 404)
+  if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Expired' }, 410)
+  const record = await fileRepo.findById(c.req.param('fileId'))
+  if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
+  const storage = createStorageRepository(c.env.STORAGE)
+  const obj = await storage.download(record.r2Key)
+  if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('Content-Disposition', `attachment; filename="${record.name}"`)
+  return new Response(obj.body, { headers })
+})
+
 export default app

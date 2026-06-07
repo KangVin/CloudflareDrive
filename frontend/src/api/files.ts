@@ -31,7 +31,10 @@ export async function updateFile(id: string, data: { name?: string; parentId?: s
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to update file')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Failed to update file')
+  }
   return res.json()
 }
 
