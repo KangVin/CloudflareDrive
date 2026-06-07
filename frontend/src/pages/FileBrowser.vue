@@ -7,14 +7,13 @@ import {
   NBreadcrumb,
   NBreadcrumbItem,
   NIcon,
-  NModal,
   NInput,
+  NModal,
   NSpace,
   NEmpty,
   NSpin,
   NPopconfirm,
   NUpload,
-  NSelect,
   NTooltip,
   NDropdown,
   useMessage,
@@ -36,12 +35,13 @@ import {
 import { useFileStore } from '@/stores/fileStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { searchFiles } from '@/api/search'
-import { copyFile, listFiles, trashFile, updateFile } from '@/api/files'
-import { createShare } from '@/api/shares'
+import { copyFile, trashFile, updateFile } from '@/api/files'
 import { formatSize } from '@/utils/format'
-import { IMAGE_TYPES, TEXT_TYPES } from '@/utils/constants'
 import { useUpload } from '@/composables/useUpload'
 import UploadQueue from '@/components/UploadQueue.vue'
+import MoveModal from '@/components/MoveModal.vue'
+import ShareModal from '@/components/ShareModal.vue'
+import FilePreview from '@/components/FilePreview.vue'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
@@ -224,80 +224,37 @@ async function handleDrop(e: DragEvent) {
 
 const moveTargets = ref<FileRecord[]>([])
 const showMoveModal = ref(false)
-const moveCurrentFolderId = ref<string | null>(null)
-const moveFolderItems = ref<FileRecord[]>([])
-const moveLoadingFolders = ref(false)
-const moveBreadcrumbs = ref<{ id: string | null; name: string }[]>([])
 
 const previewTarget = ref<FileRecord | null>(null)
 const showPreviewModal = ref(false)
-const previewContent = ref<string | null>(null)
-const previewUrl = ref<string | null>(null)
-const previewLoading = ref(false)
-
-async function openPreview(file: FileRecord) {
-  previewTarget.value = file
-  showPreviewModal.value = true
-  previewContent.value = null
-  previewUrl.value = null
-  previewLoading.value = true
-  try {
-    const res = await fetch(`/api/v1/files/${file.id}/download`)
-    if (!res.ok) throw new Error('Download failed')
-    const mime = file.mimeType || ''
-    if (IMAGE_TYPES.includes(mime)) {
-      const blob = await res.blob()
-      previewUrl.value = URL.createObjectURL(blob)
-    } else if (TEXT_TYPES.includes(mime) || mime.startsWith('text/')) {
-      previewContent.value = await res.text()
-    } else {
-      previewContent.value = null
-    }
-  } catch {
-    message.error(settings.t('failedToLoadPreview'))
-  } finally {
-    previewLoading.value = false
-  }
-}
 
 const shareTarget = ref<FileRecord | null>(null)
 const showShareModal = ref(false)
-const shareExpiryDays = ref<number>(0)
-const sharingLoading = ref(false)
+
+function openPreview(file: FileRecord) {
+  previewTarget.value = file
+  showPreviewModal.value = true
+}
 
 function openShareModal(file: FileRecord) {
   shareTarget.value = file
-  shareExpiryDays.value = 0
   showShareModal.value = true
 }
 
-async function handleCreateShare() {
-  if (!shareTarget.value) return
-  sharingLoading.value = true
-  try {
-    let expiresAt: string | null = null
-    if (shareExpiryDays.value > 0) {
-      const d = new Date()
-      d.setDate(d.getDate() + shareExpiryDays.value)
-      expiresAt = d.toISOString()
-    }
-    await createShare(shareTarget.value.id, expiresAt)
-    message.success(settings.t('shareLinkCreated'))
-    showShareModal.value = false
-    shareTarget.value = null
-  } catch {
-    message.error(settings.t('failedToCreateShareLink'))
-  } finally {
-    sharingLoading.value = false
-  }
+function openMoveModal(file: FileRecord) {
+  moveTargets.value = [file]
+  showMoveModal.value = true
 }
 
-function closePreview() {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = null
-  previewContent.value = null
-  previewTarget.value = null
-  showPreviewModal.value = false
+function openBatchMoveModal() {
+  moveTargets.value = [...selectedFiles.value]
+  showMoveModal.value = true
+}
+
+function onMoveDone() {
+  moveTargets.value = []
+  checkedRowKeys.value = []
+  store.loadFolder(store.currentFolderId)
 }
 
 async function init() {
@@ -446,69 +403,6 @@ async function pasteClipboardItems() {
     await init()
   } catch (e) {
     message.error(e instanceof Error ? e.message : settings.t('failedToPaste'))
-  }
-}
-
-function openMoveModal(file: FileRecord) {
-  moveTargets.value = [file]
-  moveCurrentFolderId.value = null
-  moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
-  loadMoveFolders(null)
-  showMoveModal.value = true
-}
-
-function openBatchMoveModal() {
-  if (selectedFiles.value.length === 0) return
-  moveTargets.value = [...selectedFiles.value]
-  moveCurrentFolderId.value = null
-  moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
-  loadMoveFolders(null)
-  showMoveModal.value = true
-}
-
-async function loadMoveFolders(parentId: string | null) {
-  moveLoadingFolders.value = true
-  try {
-    const all = await listFiles(parentId ?? undefined)
-    moveFolderItems.value = all.filter((f) => f.type === 'folder')
-  } catch {
-    message.error(settings.t('failedToLoadFolders'))
-  } finally {
-    moveLoadingFolders.value = false
-  }
-}
-
-function navigateMoveFolder(id: string | null) {
-  if (id === null) {
-    moveBreadcrumbs.value = [{ id: null, name: settings.t('root') }]
-    moveCurrentFolderId.value = null
-    loadMoveFolders(null)
-    return
-  }
-  const existing = moveBreadcrumbs.value.findIndex((b) => b.id === id)
-  if (existing !== -1) {
-    moveBreadcrumbs.value = moveBreadcrumbs.value.slice(0, existing + 1)
-  } else {
-    const folder = moveFolderItems.value.find((f) => f.id === id)
-    if (folder) moveBreadcrumbs.value.push({ id: folder.id, name: folder.name })
-  }
-  moveCurrentFolderId.value = id
-  loadMoveFolders(id)
-}
-
-async function handleMove() {
-  if (moveTargets.value.length === 0) return
-  try {
-    for (const file of moveTargets.value) {
-      await updateFile(file.id, { parentId: moveCurrentFolderId.value })
-    }
-    message.success(settings.t('movedSuccessfully'))
-    showMoveModal.value = false
-    moveTargets.value = []
-    checkedRowKeys.value = []
-    await init()
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : settings.t('failedToMove'))
   }
 }
 
@@ -770,85 +664,9 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
       </template>
     </NModal>
 
-    <NModal v-model:show="showMoveModal" :title="settings.t('moveTo')" preset="card" style="width: 420px">
-      <NSpace vertical>
-        <NBreadcrumb separator="›">
-          <NBreadcrumbItem v-for="crumb in moveBreadcrumbs" :key="crumb.id ?? 'root'">
-            <a v-if="crumb.id !== moveCurrentFolderId" href="#" @click.prevent="navigateMoveFolder(crumb.id)">
-              {{ crumb.id === null ? settings.t('root') : crumb.name }}
-            </a>
-            <span v-else>{{ crumb.id === null ? settings.t('root') : crumb.name }}</span>
-          </NBreadcrumbItem>
-        </NBreadcrumb>
-        <NSpin :show="moveLoadingFolders">
-          <div v-if="moveFolderItems.length > 0" style="max-height: 300px; overflow-y: auto">
-            <div
-              v-for="folder in moveFolderItems"
-              :key="folder.id"
-              style="cursor: pointer; padding: 6px 8px; display: flex; align-items: center; gap: 6px"
-              @click="navigateMoveFolder(folder.id)"
-            >
-              <NIcon><FolderOpenOutline /></NIcon>
-              {{ folder.name }}
-            </div>
-          </div>
-          <NEmpty v-else :description="settings.t('noSubfolders')" />
-        </NSpin>
-      </NSpace>
-      <template #footer>
-        <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">{{
-          settings.t('moveHere')
-        }}</NButton>
-      </template>
-    </NModal>
-
-    <NModal v-model:show="showShareModal" :title="settings.t('createShareLink')" preset="card" style="width: 400px">
-      <p v-if="shareTarget" style="margin-top: 0">
-        {{ settings.t('shareVerb') }} <strong>{{ shareTarget.name }}</strong> {{ settings.t('sharePublicLink') }}
-      </p>
-      <NSpace vertical>
-        <label>{{ settings.t('expiry') }}</label>
-        <NSelect
-          v-model:value="shareExpiryDays"
-          :options="[
-            { label: `1 ${settings.t('day')}`, value: 1 },
-            { label: `7 ${settings.t('days')}`, value: 7 },
-            { label: `30 ${settings.t('days')}`, value: 30 },
-            { label: settings.t('never'), value: 0 },
-          ]"
-          :placeholder="settings.t('expiry')"
-        />
-      </NSpace>
-      <template #footer>
-        <NButton type="primary" :disabled="sharingLoading" @click="handleCreateShare">{{
-          settings.t('createLink')
-        }}</NButton>
-      </template>
-    </NModal>
-
-    <NModal
-      v-model:show="showPreviewModal"
-      :title="previewTarget?.name ?? settings.t('preview')"
-      preset="card"
-      style="width: 800px; max-height: 90vh"
-      @update:show="
-        (val: boolean) => {
-          if (!val) closePreview()
-        }
-      "
-    >
-      <NSpin :show="previewLoading">
-        <div v-if="previewUrl" style="text-align: center">
-          <img :src="previewUrl" alt="Preview" style="max-width: 100%; max-height: 70vh; object-fit: contain" />
-        </div>
-        <pre
-          v-else-if="previewContent !== null"
-          style="max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0"
-          >{{ previewContent }}</pre
-        >
-        <NEmpty v-else-if="!previewLoading" :description="settings.t('previewNotAvailable')" />
-      </NSpin>
-    </NModal>
+    <MoveModal v-model:show="showMoveModal" :targets="moveTargets" @moved="onMoveDone" />
+    <ShareModal v-model:show="showShareModal" :target="shareTarget" />
+    <FilePreview v-model:show="showPreviewModal" :file="previewTarget" />
   </div>
 </template>
 
