@@ -172,7 +172,7 @@ export function createFileService(fileRepo: FileRepo, storageRepo: StorageRepo, 
   }
 
   async function permanentDeleteChildren(parentId: string): Promise<void> {
-    const children = await fileRepo.findByParent(parentId)
+    const children = await fileRepo.findByParentIncludingTrashed(parentId)
     for (const child of children) {
       if (child.type === 'folder') {
         await permanentDeleteChildren(child.id)

@@ -31,6 +31,7 @@ import {
   MoveOutline,
   EyeOutline,
   ShareOutline,
+  DownloadOutline,
 } from '@vicons/ionicons5'
 import { useFileStore } from '@/stores/fileStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -103,14 +104,18 @@ function handleContextMenuSelect(key: string) {
     if (!isSearchActive.value) handleDelete(file)
   } else if (key === 'preview' && file.type === 'file') {
     openPreview(file)
+  } else if (key === 'download') {
+    downloadFile(file)
   }
 }
 
 const contextMenuOptions = computed<DropdownOption[]>(() => {
   const isFolder = contextMenuRow.value?.type === 'folder'
+  const isFile = contextMenuRow.value?.type === 'file'
   return [
     ...(isFolder ? [{ label: settings.t('open'), key: 'open' }] : []),
-    { label: settings.t('preview'), key: 'preview' },
+    ...(isFile ? [{ label: settings.t('preview'), key: 'preview' }] : []),
+    ...(isFile ? [{ label: settings.t('download'), key: 'download' }] : []),
     { type: 'divider' },
     { label: settings.t('rename'), key: 'rename' },
     { label: settings.t('move'), key: 'move' },
@@ -245,6 +250,15 @@ function openPreview(file: FileRecord) {
 function openShareModal(file: FileRecord) {
   shareTarget.value = file
   showShareModal.value = true
+}
+
+function downloadFile(file: FileRecord) {
+  const a = document.createElement('a')
+  a.href = `/api/v1/files/${file.id}/download`
+  a.download = file.name
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function openMoveModal(file: FileRecord) {
@@ -511,6 +525,15 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
                   h(NIcon, null, () => h(EyeOutline)),
                 ),
               default: () => settings.t('preview'),
+            })
+          : null,
+        row.type === 'file'
+          ? h(NTooltip, null, {
+              trigger: () =>
+                h(NButton, { size: 'tiny', quaternary: true, onClick: () => downloadFile(row) }, () =>
+                  h(NIcon, null, () => h(DownloadOutline)),
+                ),
+              default: () => settings.t('download'),
             })
           : null,
         h(NTooltip, null, {
