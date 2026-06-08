@@ -53,14 +53,22 @@ async function handleBatchRevoke() {
 
 const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
   { type: 'selection' },
-  { title: settings.t('file'), key: 'fileName', minWidth: 180, ellipsis: { tooltip: true } },
   {
-    title: settings.t('location'),
-    key: 'parentName',
-    minWidth: 120,
+    title: settings.t('file'),
+    key: 'fileName',
+    minWidth: 220,
     ellipsis: { tooltip: true },
     render(row) {
-      return row.parentName ?? settings.t('root')
+      return h('div', null, [
+        h('div', null, row.fileName),
+        row.path
+          ? h(
+              'div',
+              { style: 'font-size: 12px; color: #888; margin-top: 2px; overflow: hidden; text-overflow: ellipsis' },
+              row.path,
+            )
+          : null,
+      ])
     },
   },
   {

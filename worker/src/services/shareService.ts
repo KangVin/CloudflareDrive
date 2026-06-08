@@ -20,7 +20,28 @@ function formatSize(bytes: number): string {
 
 export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
   async function list() {
-    return await shareRepo.findAll()
+    const shares = await shareRepo.findAll()
+    return await Promise.all(
+      shares.map(async (share) => {
+        const path = await buildPath(share.fileId)
+        return { ...share, path }
+      }),
+    )
+  }
+
+  /** Walk up the parent chain to build the directory path from root to parent of the file */
+  async function buildPath(fileId: string): Promise<string | null> {
+    const parts: string[] = []
+    let currentId: string | null = fileId
+    while (currentId) {
+      const file = await fileRepo.findById(currentId)
+      if (!file) break
+      parts.unshift(file.name)
+      currentId = file.parentId
+    }
+    // Remove the file name itself, keep only parent directory path
+    parts.pop()
+    return parts.length > 0 ? parts.join('/') : null
   }
 
   async function create(fileId: string, expiresAt: string | null) {

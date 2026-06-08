@@ -22,7 +22,7 @@ export interface ShareRecord {
   createdAt: string
   fileName: string
   fileType: 'file' | 'folder'
-  parentName: string | null
+  path: string | null
 }
 
 /** File/folder item within a shared folder listing */
