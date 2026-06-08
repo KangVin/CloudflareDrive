@@ -31,6 +31,19 @@ export function createShareRepository(db: D1Database) {
     return results.map(mapRow)
   }
 
+  async function findByFileId(fileId: string): Promise<ShareRow | null> {
+    const row = await db
+      .prepare(
+        `SELECT s.*, f.name AS file_name, f.type AS file_type
+         FROM shares s
+         JOIN files f ON f.id = s.file_id
+         WHERE s.file_id = ?`,
+      )
+      .bind(fileId)
+      .first()
+    return row ? mapRow(row as Record<string, unknown>) : null
+  }
+
   async function findByToken(token: string): Promise<ShareRow | null> {
     const row = await db
       .prepare(
@@ -78,5 +91,5 @@ export function createShareRepository(db: D1Database) {
     await db.prepare('DELETE FROM shares WHERE file_id = ?').bind(fileId).run()
   }
 
-  return { findAll, findByToken, findById, create, remove, removeByFileId }
+  return { findAll, findByToken, findById, findByFileId, create, remove, removeByFileId }
 }

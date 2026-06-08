@@ -28,7 +28,7 @@ async function withCache(
   const { status, body } = await handler()
 
   try {
-    const ttl = status === 200 ? 10 : 30
+    const ttl = status === 200 ? 600 : 30
     const response = new Response(JSON.stringify(body), {
       status,
       headers: {
@@ -113,6 +113,10 @@ app.get('/api/v1/s/:token/download/:fileId', async (c) => {
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Expired' }, 410)
   const record = await fileRepo.findById(c.req.param('fileId'))
   if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
+  const svc = createShareService(shareRepo, fileRepo)
+  if (record.id !== share.fileId && !(await svc.isDescendant(record.id, share.fileId))) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const storage = createStorageRepository(c.env.STORAGE)
   const obj = await storage.download(record.r2Key)
   if (!obj) return c.json({ error: 'File not found in storage' }, 404)

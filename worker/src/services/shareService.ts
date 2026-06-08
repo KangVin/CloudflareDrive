@@ -129,5 +129,17 @@ export function createShareService(shareRepo: ShareRepo, fileRepo: FileRepo) {
     }
   }
 
-  return { list, create, revoke, getPublic, getPublicBrowse }
+  /** Walk up parent chain to find if any ancestor has a share record, return the token */
+  async function findShareTokenByDescendant(fileId: string | null): Promise<string | null> {
+    let currentId: string | null = fileId
+    while (currentId) {
+      const share = await shareRepo.findByFileId(currentId)
+      if (share) return share.token
+      const current = await fileRepo.findById(currentId)
+      currentId = current?.parentId ?? null
+    }
+    return null
+  }
+
+  return { list, create, revoke, getPublic, getPublicBrowse, isDescendant, findShareTokenByDescendant }
 }

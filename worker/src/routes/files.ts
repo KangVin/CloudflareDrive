@@ -2,9 +2,39 @@ import { Hono } from 'hono'
 import type { Env } from '../types/env'
 import { createFileRepository } from '../repositories/fileRepository'
 import { createStorageRepository } from '../repositories/storageRepository'
+import { createShareRepository } from '../repositories/shareRepository'
+import { createShareService } from '../services/shareService'
 import { createFileService } from '../services/fileService'
 
 const files = new Hono<{ Bindings: Env }>()
+
+function deleteShareCacheEntries(origin: string, token: string, folderId: string) {
+  const cache = caches.default
+  const rootUrl = `${origin}/api/v1/s/${token}`
+  cache.delete(new Request(rootUrl))
+  cache.delete(new Request(`${rootUrl}?page=1&pageSize=50`))
+  const browseUrl = `${origin}/api/v1/s/${token}/browse/${folderId}`
+  cache.delete(new Request(browseUrl))
+  cache.delete(new Request(`${browseUrl}?page=1&pageSize=50`))
+}
+
+/** Invalidate Cache API entries for a share if the given folder is within a shared tree */
+async function invalidateShareCache(db: D1Database, origin: string, folderId: string | null) {
+  if (!folderId) return
+  const svc = createShareService(createShareRepository(db), createFileRepository(db))
+  const token = await svc.findShareTokenByDescendant(folderId)
+  if (!token) return
+  deleteShareCacheEntries(origin, token, folderId)
+}
+
+/** Invalidate Cache API entries if the given file itself is a share root */
+async function invalidateShareCacheByFileId(db: D1Database, origin: string, fileId: string | null) {
+  if (!fileId) return
+  const shareRepo = createShareRepository(db)
+  const share = await shareRepo.findByFileId(fileId)
+  if (!share) return
+  deleteShareCacheEntries(origin, share.token, fileId)
+}
 
 files.get('/', async (c) => {
   const parentId = c.req.query('parentId') ?? null
@@ -41,6 +71,8 @@ files.post('/instant', async (c) => {
     body.mimeType ?? 'application/octet-stream',
   )
   if (!item) return c.json({ error: 'Hash not found' }, 404)
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
   return c.json(item, 201)
 })
 
@@ -49,6 +81,8 @@ files.post('/:id/copy', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const item = await svc.copy(c.req.param('id'), body.parentId ?? null)
   if (!item) return c.json({ error: 'Not found' }, 404)
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
   return c.json(item, 201)
 })
 
@@ -64,6 +98,8 @@ files.post('/', async (c) => {
   if (!body.name) return c.json({ error: 'Name is required' }, 400)
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const item = await svc.createFolder(body.name, body.parentId ?? null)
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
   return c.json(item, 201)
 })
 
@@ -98,6 +134,8 @@ files.post('/upload/:uploadId/complete', async (c) => {
       body.name,
       body.mimeType ?? 'application/octet-stream',
     )
+    const origin = new URL(c.req.url).origin
+    c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
     return c.json(item, 201)
   } catch (e) {
     console.error('complete error:', e)
@@ -114,6 +152,8 @@ files.post('/upload', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const buf = await file.arrayBuffer()
   const item = await svc.upload(file.name, parentId, file.type, buf, hash)
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
   return c.json(item, 201)
 })
 
@@ -132,9 +172,21 @@ files.get('/:id/download', async (c) => {
 
 files.patch('/:id', async (c) => {
   const body = await c.req.json<{ name?: string; parentId?: string | null }>()
-  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const fileRepo = createFileRepository(c.env.DB)
+  const old = await fileRepo.findById(c.req.param('id'))
+  const svc = createFileService(fileRepo, createStorageRepository(c.env.STORAGE))
   try {
     const item = await svc.update(c.req.param('id'), body)
+    const origin = new URL(c.req.url).origin
+    c.executionCtx.waitUntil(
+      (async () => {
+        await invalidateShareCache(c.env.DB, origin, old?.parentId ?? null)
+        if (body.parentId !== undefined && body.parentId !== old?.parentId) {
+          await invalidateShareCache(c.env.DB, origin, body.parentId ?? null)
+        }
+        await invalidateShareCacheByFileId(c.env.DB, origin, old?.id ?? null)
+      })(),
+    )
     return c.json(item)
   } catch (e) {
     return c.json({ error: (e as Error).message }, 400)
@@ -142,8 +194,17 @@ files.patch('/:id', async (c) => {
 })
 
 files.delete('/:id', async (c) => {
-  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const fileRepo = createFileRepository(c.env.DB)
+  const file = await fileRepo.findById(c.req.param('id'))
+  const svc = createFileService(fileRepo, createStorageRepository(c.env.STORAGE))
   await svc.trash(c.req.param('id'))
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(
+    (async () => {
+      await invalidateShareCache(c.env.DB, origin, file?.parentId ?? null)
+      await invalidateShareCacheByFileId(c.env.DB, origin, file?.id ?? null)
+    })(),
+  )
   return c.body(null, 204)
 })
 
