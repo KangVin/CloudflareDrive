@@ -4,6 +4,7 @@ import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NToolti
 import { ArrowUndoOutline, TrashOutline } from '@vicons/ionicons5'
 import { useTrashStore } from '@/stores/trashStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useRequest } from '@/composables/useRequest'
 import { formatSize } from '@/utils/format'
 import type { FileRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
@@ -46,37 +47,34 @@ async function handlePermanentDelete(file: FileRecord) {
   }
 }
 
-async function handleBatchRestore() {
-  if (selectedFiles.value.length === 0) return
-  try {
+const { loading: batchRestoreLoading, execute: handleBatchRestore } = useRequest(
+  async () => {
+    if (selectedFiles.value.length === 0) return
     await store.batchRestore(selectedFiles.value.map((f) => f.id))
     checkedRowKeys.value = []
     message.success(settings.t('restored'))
-  } catch {
-    message.error(settings.t('failedToRestore'))
-  }
-}
+  },
+  { lockKey: 'batch-restore' },
+)
 
-async function handleBatchDelete() {
-  if (selectedFiles.value.length === 0) return
-  try {
+const { execute: handleBatchDelete } = useRequest(
+  async () => {
+    if (selectedFiles.value.length === 0) return
     await store.batchPermanentDelete(selectedFiles.value.map((f) => f.id))
     checkedRowKeys.value = []
     message.success(settings.t('deletePermanently'))
-  } catch {
-    message.error(settings.t('failedToDelete'))
-  }
-}
+  },
+  { lockKey: 'batch-delete-trash' },
+)
 
-async function handleEmptyTrash() {
-  try {
+const { execute: handleEmptyTrash } = useRequest(
+  async () => {
     await store.emptyTrash()
     checkedRowKeys.value = []
     message.success(settings.t('emptyTrashDone'))
-  } catch {
-    message.error(settings.t('failedToDelete'))
-  }
-}
+  },
+  { lockKey: 'empty-trash' },
+)
 
 const columns = computed<DataTableColumn<FileRecord>[]>(() => [
   { type: 'selection' },
@@ -137,7 +135,9 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
     <h2 style="margin-top: 0">{{ settings.t('trash') }}</h2>
     <NSpace v-if="checkedRowKeys.length > 0" style="margin-bottom: 12px" align="center">
       <span>{{ checkedRowKeys.length }} {{ settings.t('selected') }}</span>
-      <NButton size="small" @click="handleBatchRestore">{{ settings.t('restore') }}</NButton>
+      <NButton size="small" :loading="batchRestoreLoading" @click="handleBatchRestore">{{
+        settings.t('restore')
+      }}</NButton>
       <NPopconfirm @positive-click="handleBatchDelete">
         <template #trigger>
           <NButton size="small" type="error">{{ settings.t('delete') }}</NButton>

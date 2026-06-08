@@ -4,6 +4,7 @@ import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NTag, N
 import { TrashOutline, LinkOutline } from '@vicons/ionicons5'
 import { useShareStore } from '@/stores/shareStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useRequest } from '@/composables/useRequest'
 import type { ShareRecord } from '@/types'
 import type { DataTableColumn } from 'naive-ui'
 
@@ -40,16 +41,15 @@ async function handleRevoke(share: ShareRecord) {
   }
 }
 
-async function handleBatchRevoke() {
-  if (selectedShares.value.length === 0) return
-  try {
+const { execute: handleBatchRevoke } = useRequest(
+  async () => {
+    if (selectedShares.value.length === 0) return
     await store.batchRevoke(selectedShares.value.map((s) => s.id))
     checkedRowKeys.value = []
     message.success(settings.t('revoke'))
-  } catch {
-    message.error(settings.t('failedToRevoke'))
-  }
-}
+  },
+  { lockKey: 'batch-revoke' },
+)
 
 const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
   { type: 'selection' },

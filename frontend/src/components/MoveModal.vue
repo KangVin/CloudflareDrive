@@ -4,6 +4,7 @@ import { NButton, NBreadcrumb, NBreadcrumbItem, NModal, NSpace, NSpin, NEmpty, N
 import { FolderOpenOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { listFiles, updateFile } from '@/api/files'
+import { useRequest } from '@/composables/useRequest'
 import type { FileRecord } from '@/types'
 
 const props = defineProps<{
@@ -65,19 +66,18 @@ function navigateMoveFolder(id: string | null) {
   loadMoveFolders(id)
 }
 
-async function handleMove() {
-  if (props.targets.length === 0) return
-  try {
+const { loading: moveLoading, execute: handleMove } = useRequest(
+  async () => {
+    if (props.targets.length === 0) return
     for (const file of props.targets) {
       await updateFile(file.id, { parentId: moveCurrentFolderId.value })
     }
     message.success(settings.t('movedSuccessfully'))
     emit('moved')
     emit('update:show', false)
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : settings.t('failedToMove'))
-  }
-}
+  },
+  { lockKey: 'move-files' },
+)
 </script>
 
 <template>
@@ -113,7 +113,7 @@ async function handleMove() {
       </NSpin>
     </NSpace>
     <template #footer>
-      <NButton type="primary" :disabled="moveLoadingFolders" @click="handleMove">{{ settings.t('moveHere') }}</NButton>
+      <NButton type="primary" :loading="moveLoading" @click="handleMove">{{ settings.t('moveHere') }}</NButton>
     </template>
   </NModal>
 </template>

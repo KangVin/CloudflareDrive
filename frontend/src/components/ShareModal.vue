@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { NButton, NModal, NSpace, NSelect, useMessage } from 'naive-ui'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useShareStore } from '@/stores/shareStore'
+import { useRequest } from '@/composables/useRequest'
 import type { FileRecord } from '@/types'
 
 const props = defineProps<{
@@ -20,7 +21,6 @@ const shareStore = useShareStore()
 const message = useMessage()
 
 const shareExpiryDays = ref<number>(0)
-const sharingLoading = ref(false)
 
 watch(
   () => props.show,
@@ -31,11 +31,10 @@ watch(
   },
 )
 
-async function handleCreateShare() {
-  const target = props.target
-  if (!target) return
-  sharingLoading.value = true
-  try {
+const { loading: sharingLoading, execute: handleCreateShare } = useRequest(
+  async () => {
+    const target = props.target
+    if (!target) return
     let expiresAt: string | null = null
     if (shareExpiryDays.value > 0) {
       const d = new Date()
@@ -46,12 +45,9 @@ async function handleCreateShare() {
     message.success(settings.t('shareLinkCreated'))
     emit('shared')
     emit('update:show', false)
-  } catch {
-    message.error(settings.t('failedToCreateShareLink'))
-  } finally {
-    sharingLoading.value = false
-  }
-}
+  },
+  { lockKey: 'create-share' },
+)
 </script>
 
 <template>
@@ -79,7 +75,7 @@ async function handleCreateShare() {
       />
     </NSpace>
     <template #footer>
-      <NButton type="primary" :disabled="sharingLoading" @click="handleCreateShare">{{
+      <NButton type="primary" :loading="sharingLoading" @click="handleCreateShare">{{
         settings.t('createLink')
       }}</NButton>
     </template>

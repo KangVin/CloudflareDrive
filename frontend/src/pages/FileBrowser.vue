@@ -38,6 +38,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { searchFiles } from '@/api/search'
 import { copyFile, trashFile, updateFile } from '@/api/files'
 import { formatSize } from '@/utils/format'
+import { useRequest } from '@/composables/useRequest'
 import { useUpload } from '@/composables/useUpload'
 import UploadQueue from '@/components/UploadQueue.vue'
 import MoveModal from '@/components/MoveModal.vue'
@@ -330,17 +331,16 @@ function navigateToBreadcrumb(id: string | null) {
   }
 }
 
-async function handleCreateFolder() {
-  if (!newFolderName.value.trim()) return
-  try {
+const { loading: createLoading, execute: handleCreateFolder } = useRequest(
+  async () => {
+    if (!newFolderName.value.trim()) return
     await store.createFolder(newFolderName.value.trim())
     newFolderName.value = ''
     showCreateModal.value = false
     message.success(settings.t('create'))
-  } catch {
-    message.error(settings.t('failedToCreateFolder'))
-  }
-}
+  },
+  { lockKey: 'create-folder' },
+)
 
 function openRename(file: FileRecord) {
   renameTarget.value = file
@@ -348,17 +348,16 @@ function openRename(file: FileRecord) {
   showRenameModal.value = true
 }
 
-async function handleRename() {
-  if (!renameTarget.value || !renameName.value.trim()) return
-  try {
+const { loading: renameLoading, execute: handleRename } = useRequest(
+  async () => {
+    if (!renameTarget.value || !renameName.value.trim()) return
     await store.renameFile(renameTarget.value.id, renameName.value.trim())
     showRenameModal.value = false
     renameTarget.value = null
     message.success(settings.t('renamed'))
-  } catch {
-    message.error(settings.t('failedToRename'))
-  }
-}
+  },
+  { lockKey: 'rename-file' },
+)
 
 async function handleDelete(file: FileRecord) {
   try {
@@ -370,19 +369,18 @@ async function handleDelete(file: FileRecord) {
   }
 }
 
-async function handleBatchDelete() {
-  if (selectedFiles.value.length === 0) return
-  try {
+const { execute: handleBatchDelete } = useRequest(
+  async () => {
+    if (selectedFiles.value.length === 0) return
     for (const file of selectedFiles.value) {
       await trashFile(file.id)
     }
     checkedRowKeys.value = []
     message.success(settings.t('movedSelectedToTrash'))
     await init()
-  } catch {
-    message.error(settings.t('failedToDeleteSelectedFiles'))
-  }
-}
+  },
+  { lockKey: 'batch-delete' },
+)
 
 function copySelectedToClipboard() {
   if (selectedFiles.value.length === 0) return
@@ -406,9 +404,9 @@ function cutFilesToClipboard(files: FileRecord[]) {
   message.success(settings.t('cutToClipboard'))
 }
 
-async function pasteClipboardItems() {
-  if (!clipboardMode.value || clipboardItems.value.length === 0 || isSearchActive.value) return
-  try {
+const { loading: pasteLoading, execute: pasteClipboardItems } = useRequest(
+  async () => {
+    if (!clipboardMode.value || clipboardItems.value.length === 0 || isSearchActive.value) return
     for (const file of clipboardItems.value) {
       if (clipboardMode.value === 'copy') {
         await copyFile(file.id, store.currentFolderId)
@@ -423,10 +421,9 @@ async function pasteClipboardItems() {
     checkedRowKeys.value = []
     message.success(settings.t('pasted'))
     await init()
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : settings.t('failedToPaste'))
-  }
-}
+  },
+  { lockKey: 'paste-files' },
+)
 
 function handleUpload(options: UploadCustomRequestOptions) {
   const file = options.file.file as File
@@ -649,7 +646,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
           >{{ clipboardItems.length }}
           {{ clipboardMode === 'copy' ? settings.t('itemCopied') : settings.t('itemCut') }}</span
         >
-        <NButton size="small" :disabled="isSearchActive" @click="pasteClipboardItems">{{
+        <NButton size="small" :disabled="isSearchActive" :loading="pasteLoading" @click="pasteClipboardItems">{{
           settings.t('pasteHere')
         }}</NButton>
       </NSpace>
@@ -686,14 +683,16 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
     <NModal v-model:show="showCreateModal" :title="settings.t('newFolder')" preset="card" style="width: 360px">
       <NInput v-model:value="newFolderName" :placeholder="settings.t('folderName')" @keyup.enter="handleCreateFolder" />
       <template #footer>
-        <NButton type="primary" @click="handleCreateFolder">{{ settings.t('create') }}</NButton>
+        <NButton type="primary" :loading="createLoading" @click="handleCreateFolder">{{
+          settings.t('create')
+        }}</NButton>
       </template>
     </NModal>
 
     <NModal v-model:show="showRenameModal" :title="settings.t('rename')" preset="card" style="width: 360px">
       <NInput v-model:value="renameName" :placeholder="settings.t('name')" @keyup.enter="handleRename" />
       <template #footer>
-        <NButton type="primary" @click="handleRename">{{ settings.t('rename') }}</NButton>
+        <NButton type="primary" :loading="renameLoading" @click="handleRename">{{ settings.t('rename') }}</NButton>
       </template>
     </NModal>
 
