@@ -55,6 +55,15 @@ const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
   { type: 'selection' },
   { title: settings.t('file'), key: 'fileName', minWidth: 180, ellipsis: { tooltip: true } },
   {
+    title: settings.t('location'),
+    key: 'parentName',
+    minWidth: 120,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.parentName ?? settings.t('root')
+    },
+  },
+  {
     title: settings.t('type'),
     key: 'fileType',
     width: 80,

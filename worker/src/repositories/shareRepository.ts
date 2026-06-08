@@ -1,9 +1,10 @@
 import type { ShareRecord, CreateShareInput } from '../types/models'
 
-/** Share row with joined file name */
+/** Share row with joined file names */
 interface ShareRow extends ShareRecord {
   fileName: string
   fileType: 'file' | 'folder'
+  parentName: string | null
 }
 
 function mapRow(row: Record<string, unknown>): ShareRow {
@@ -15,6 +16,7 @@ function mapRow(row: Record<string, unknown>): ShareRow {
     createdAt: row.created_at as string,
     fileName: row.file_name as string,
     fileType: row.file_type as 'file' | 'folder',
+    parentName: row.parent_name as string | null,
   }
 }
 
@@ -22,9 +24,10 @@ export function createShareRepository(db: D1Database) {
   async function findAll(): Promise<ShareRow[]> {
     const { results } = await db
       .prepare(
-        `SELECT s.*, f.name AS file_name, f.type AS file_type
+        `SELECT s.*, f.name AS file_name, f.type AS file_type, p.name AS parent_name
          FROM shares s
          JOIN files f ON f.id = s.file_id
+         LEFT JOIN files p ON f.parent_id = p.id
          ORDER BY s.created_at DESC`,
       )
       .all()
@@ -34,9 +37,10 @@ export function createShareRepository(db: D1Database) {
   async function findByToken(token: string): Promise<ShareRow | null> {
     const row = await db
       .prepare(
-        `SELECT s.*, f.name AS file_name, f.type AS file_type
+        `SELECT s.*, f.name AS file_name, f.type AS file_type, p.name AS parent_name
          FROM shares s
          JOIN files f ON f.id = s.file_id
+         LEFT JOIN files p ON f.parent_id = p.id
          WHERE s.token = ?`,
       )
       .bind(token)
@@ -47,9 +51,10 @@ export function createShareRepository(db: D1Database) {
   async function findById(id: string): Promise<ShareRow | null> {
     const row = await db
       .prepare(
-        `SELECT s.*, f.name AS file_name, f.type AS file_type
+        `SELECT s.*, f.name AS file_name, f.type AS file_type, p.name AS parent_name
          FROM shares s
          JOIN files f ON f.id = s.file_id
+         LEFT JOIN files p ON f.parent_id = p.id
          WHERE s.id = ?`,
       )
       .bind(id)
