@@ -104,8 +104,6 @@ Cloudflare Worker (Hono API)
 │   └── wrangler.jsonc
 │
 ├── .prettierrc
-├── AGENTS.md                  # AI assistant instructions
-├── Plans.md                   # Project plan (Chinese)
 └── package.json               # Root workspace
 ```
 
