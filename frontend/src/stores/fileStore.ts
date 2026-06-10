@@ -40,8 +40,8 @@ export const useFileStore = defineStore('files', () => {
     await loadFolder(currentFolderId.value)
   }
 
-  async function deleteFile(id: string) {
-    await api.trashFile(id)
+  async function deleteFile(id: string, permanent?: boolean) {
+    await api.trashFile(id, permanent)
     await loadFolder(currentFolderId.value)
   }
 

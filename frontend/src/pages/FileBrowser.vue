@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton,
+  NCheckbox,
   NDataTable,
   NBreadcrumb,
   NBreadcrumbItem,
@@ -12,7 +13,6 @@ import {
   NSpace,
   NEmpty,
   NSpin,
-  NPopconfirm,
   NUpload,
   NTooltip,
   NDropdown,
@@ -65,6 +65,10 @@ const renameName = ref('')
 
 const checkedRowKeys = ref<string[]>([])
 const { uploadTasks, createTask, updateTask, uploadFile, uploadFiles, clearFinished } = useUpload()
+
+const showDeleteConfirm = ref(false)
+const deleteTargets = ref<FileRecord[]>([])
+const permanentDeleteChecked = ref(false)
 const selectedFiles = computed(() => displayedFiles.value.filter((file) => checkedRowKeys.value.includes(file.id)))
 const clipboardItems = ref<FileRecord[]>([])
 const clipboardMode = ref<'copy' | 'cut' | null>(null)
@@ -102,7 +106,7 @@ function handleContextMenuSelect(key: string) {
   } else if (key === 'paste') {
     pasteClipboardItems()
   } else if (key === 'delete') {
-    if (!isSearchActive.value) handleDelete(file)
+    if (!isSearchActive.value) openDeleteConfirm(file)
   } else if (key === 'preview' && file.type === 'file') {
     openPreview(file)
   } else if (key === 'download') {
@@ -161,8 +165,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && checkedRowKeys.value.length > 1) {
     if (!isSearchActive.value) {
-      if (!window.confirm(settings.t('moveSelectedToTrashConfirm'))) return
-      handleBatchDelete()
+      openBatchDeleteConfirm()
     }
     return
   }
@@ -171,8 +174,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (!file) return
   if (e.key === 'Delete' || e.key === 'Backspace') {
     if (!isSearchActive.value) {
-      if (!window.confirm(settings.t('moveToTrashConfirm'))) return
-      handleDelete(file)
+      openDeleteConfirm(file)
     }
   } else if (e.key === 'F2') {
     e.preventDefault()
@@ -359,27 +361,40 @@ const { loading: renameLoading, execute: handleRename } = useRequest(
   { lockKey: 'rename-file' },
 )
 
-async function handleDelete(file: FileRecord) {
-  try {
-    await store.deleteFile(file.id)
-    checkedRowKeys.value = checkedRowKeys.value.filter((id) => id !== file.id)
-    message.success(settings.t('movedToTrash'))
-  } catch {
-    message.error(settings.t('failedToDelete'))
-  }
+function openDeleteConfirm(file: FileRecord) {
+  deleteTargets.value = [file]
+  permanentDeleteChecked.value = false
+  showDeleteConfirm.value = true
 }
 
-const { execute: handleBatchDelete } = useRequest(
+function openBatchDeleteConfirm() {
+  deleteTargets.value = [...selectedFiles.value]
+  permanentDeleteChecked.value = false
+  showDeleteConfirm.value = true
+}
+
+const { loading: deleteLoading, execute: confirmDelete } = useRequest(
   async () => {
-    if (selectedFiles.value.length === 0) return
-    for (const file of selectedFiles.value) {
-      await trashFile(file.id)
+    const permanent = permanentDeleteChecked.value
+    const ids = deleteTargets.value.map((f) => f.id)
+    try {
+      for (const id of ids) {
+        await trashFile(id, permanent)
+      }
+      checkedRowKeys.value = checkedRowKeys.value.filter((id) => !ids.includes(id))
+      showDeleteConfirm.value = false
+      if (permanent) {
+        message.success(settings.t('deletedPermanently'))
+      } else {
+        message.success(ids.length > 1 ? settings.t('movedSelectedToTrash') : settings.t('movedToTrash'))
+      }
+      await init()
+    } catch {
+      showDeleteConfirm.value = false
+      message.error(settings.t('failedToDelete'))
     }
-    checkedRowKeys.value = []
-    message.success(settings.t('movedSelectedToTrash'))
-    await init()
   },
-  { lockKey: 'batch-delete' },
+  { lockKey: 'delete-confirm' },
 )
 
 function copySelectedToClipboard() {
@@ -540,19 +555,13 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
             ),
           default: () => settings.t('share'),
         }),
-        h(
-          NPopconfirm,
-          { onPositiveClick: () => handleDelete(row) },
-          {
-            default: () => settings.t('moveToTrashConfirm'),
-            trigger: () =>
-              h(NTooltip, null, {
-                trigger: () =>
-                  h(NButton, { size: 'tiny', quaternary: true }, () => h(NIcon, null, () => h(TrashOutline))),
-                default: () => settings.t('delete'),
-              }),
-          },
-        ),
+        h(NTooltip, null, {
+          trigger: () =>
+            h(NButton, { size: 'tiny', quaternary: true, onClick: () => openDeleteConfirm(row) }, () =>
+              h(NIcon, null, () => h(TrashOutline)),
+            ),
+          default: () => settings.t('delete'),
+        }),
       ])
     },
   },
@@ -633,12 +642,7 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
         <NButton size="small" @click="copySelectedToClipboard">{{ settings.t('copy') }}</NButton>
         <NButton size="small" @click="cutSelectedToClipboard">{{ settings.t('cut') }}</NButton>
         <NButton size="small" @click="openBatchMoveModal">{{ settings.t('move') }}</NButton>
-        <NPopconfirm @positive-click="handleBatchDelete">
-          <template #trigger>
-            <NButton size="small" type="error">{{ settings.t('delete') }}</NButton>
-          </template>
-          {{ settings.t('moveSelectedToTrashConfirm') }}
-        </NPopconfirm>
+        <NButton size="small" type="error" @click="openBatchDeleteConfirm">{{ settings.t('delete') }}</NButton>
       </NSpace>
 
       <NSpace v-if="clipboardMode" align="center">
@@ -693,6 +697,36 @@ const columns = computed<DataTableColumn<FileRecord>[]>(() => [
       <NInput v-model:value="renameName" :placeholder="settings.t('name')" @keyup.enter="handleRename" />
       <template #footer>
         <NButton type="primary" :loading="renameLoading" @click="handleRename">{{ settings.t('rename') }}</NButton>
+      </template>
+    </NModal>
+
+    <NModal v-model:show="showDeleteConfirm" :title="settings.t('delete')" preset="card" style="width: 400px">
+      <p>
+        {{
+          deleteTargets.length === 1
+            ? permanentDeleteChecked
+              ? settings.t('deletePermanentlyConfirm')
+              : settings.t('moveToTrashConfirm')
+            : permanentDeleteChecked
+              ? settings.t('deleteSelectedConfirm')
+              : settings.t('moveSelectedToTrashConfirm')
+        }}
+      </p>
+      <NSpace vertical style="margin-top: 16px">
+        <NCheckbox v-model:checked="permanentDeleteChecked">
+          {{ settings.t('deletePermanently') }}
+        </NCheckbox>
+        <span v-if="permanentDeleteChecked" style="font-size: 12px; color: var(--text-color-3)">
+          {{ settings.t('deletePermanentlyHint') }}
+        </span>
+      </NSpace>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="showDeleteConfirm = false">{{ settings.t('cancel') }}</NButton>
+          <NButton type="error" :loading="deleteLoading" @click="confirmDelete">
+            {{ settings.t('delete') }}
+          </NButton>
+        </NSpace>
       </template>
     </NModal>
 

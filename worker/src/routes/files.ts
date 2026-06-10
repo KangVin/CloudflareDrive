@@ -214,10 +214,18 @@ files.patch('/:id', async (c) => {
 })
 
 files.delete('/:id', async (c) => {
+  const permanent = c.req.query('permanent') === 'true'
   const fileRepo = createFileRepository(c.env.DB)
   const file = await fileRepo.findById(c.req.param('id'))
-  const svc = createFileService(fileRepo, createStorageRepository(c.env.STORAGE))
-  await svc.trash(c.req.param('id'))
+  const storageRepo = createStorageRepository(c.env.STORAGE)
+  if (permanent) {
+    const shareRepo = createShareRepository(c.env.DB)
+    const svc = createFileService(fileRepo, storageRepo, shareRepo)
+    await svc.permanentDelete(c.req.param('id'))
+  } else {
+    const svc = createFileService(fileRepo, storageRepo)
+    await svc.trash(c.req.param('id'))
+  }
   const origin = new URL(c.req.url).origin
   c.executionCtx.waitUntil(
     (async () => {

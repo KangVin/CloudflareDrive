@@ -48,6 +48,7 @@ export async function copyFile(id: string, parentId?: string | null): Promise<Fi
   )
 }
 
-export async function trashFile(id: string): Promise<void> {
-  return fetchVoid(`${BASE}/${id}`, { method: 'DELETE' }, 'Failed to trash file')
+export async function trashFile(id: string, permanent?: boolean): Promise<void> {
+  const params = permanent ? '?permanent=true' : ''
+  return fetchVoid(`${BASE}/${id}${params}`, { method: 'DELETE' }, 'Failed to trash file')
 }
