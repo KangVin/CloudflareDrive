@@ -98,8 +98,12 @@ describe('createShareService', () => {
     shareRepo = createMockShareRepo()
     fileRepo = createMockFileRepo()
     svc = createShareService(
-      shareRepo as unknown as ReturnType<typeof import('../../src/repositories/shareRepository')['createShareRepository']>,
-      fileRepo as unknown as ReturnType<typeof import('../../src/repositories/fileRepository')['createFileRepository']>,
+      shareRepo as unknown as ReturnType<
+        (typeof import('../../src/repositories/shareRepository'))['createShareRepository']
+      >,
+      fileRepo as unknown as ReturnType<
+        (typeof import('../../src/repositories/fileRepository'))['createFileRepository']
+      >,
     )
   })
 
@@ -254,7 +258,11 @@ describe('createShareService', () => {
     })
 
     it('returns null when share is expired', async () => {
-      shareRepo.findByToken.mockResolvedValue({ ...makeShare({ expiresAt: '2020-01-01T00:00:00Z' }), fileName: '', fileType: 'file' })
+      shareRepo.findByToken.mockResolvedValue({
+        ...makeShare({ expiresAt: '2020-01-01T00:00:00Z' }),
+        fileName: '',
+        fileType: 'file',
+      })
       const result = await svc.getPublicBrowse('expired-token', 'folder-id')
       expect(result).toBeNull()
     })
@@ -265,7 +273,8 @@ describe('createShareService', () => {
       // Only share.fileId exists in fileRepo; folderId is not a descendant
       fileRepo.findById.mockImplementation(async (id: string) => {
         if (id === 'shared-folder') return makeFile({ id: 'shared-folder', type: 'folder', r2Key: null })
-        if (id === 'outside-folder') return makeFile({ id: 'outside-folder', parentId: null, type: 'folder', r2Key: null })
+        if (id === 'outside-folder')
+          return makeFile({ id: 'outside-folder', parentId: null, type: 'folder', r2Key: null })
         return null
       })
 
@@ -279,7 +288,14 @@ describe('createShareService', () => {
 
       fileRepo.findById.mockImplementation(async (id: string) => {
         if (id === 'root-folder') return makeFile({ id: 'root-folder', type: 'folder', r2Key: null })
-        if (id === 'trashed-folder') return makeFile({ id: 'trashed-folder', parentId: 'root-folder', type: 'folder', r2Key: null, isTrashed: true })
+        if (id === 'trashed-folder')
+          return makeFile({
+            id: 'trashed-folder',
+            parentId: 'root-folder',
+            type: 'folder',
+            r2Key: null,
+            isTrashed: true,
+          })
         return null
       })
 
@@ -292,8 +308,20 @@ describe('createShareService', () => {
       shareRepo.findByToken.mockResolvedValue(share)
 
       const root = makeFile({ id: 'root-folder', type: 'folder', r2Key: null })
-      const sub = makeFile({ id: 'sub-folder', parentId: 'root-folder', name: 'sub-folder', type: 'folder', r2Key: null })
-      const child = makeFile({ id: 'child', parentId: 'sub-folder', name: 'nested.txt', size: 50, mimeType: 'text/plain' })
+      const sub = makeFile({
+        id: 'sub-folder',
+        parentId: 'root-folder',
+        name: 'sub-folder',
+        type: 'folder',
+        r2Key: null,
+      })
+      const child = makeFile({
+        id: 'child',
+        parentId: 'sub-folder',
+        name: 'nested.txt',
+        size: 50,
+        mimeType: 'text/plain',
+      })
 
       fileRepo.findById.mockImplementation(async (id: string) => {
         if (id === 'root-folder') return root

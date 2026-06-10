@@ -5,7 +5,7 @@ import files from './routes/files'
 import trash from './routes/trash'
 import shares from './routes/shares'
 import { createFileRepository } from './repositories/fileRepository'
-import { createStorageRepository, TEMP_CHUNK_TTL_MS } from './repositories/storageRepository'
+import { createStorageRepository } from './repositories/storageRepository'
 import { createShareRepository } from './repositories/shareRepository'
 import { createShareService } from './services/shareService'
 
@@ -139,14 +139,4 @@ app.all('*', async (c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    try {
-      const storage = createStorageRepository(env.STORAGE)
-      const cutoff = new Date(Date.now() - TEMP_CHUNK_TTL_MS)
-      const count = await storage.deleteOrphanedTempChunks(cutoff)
-      console.log(`Scheduled cleanup: deleted ${count} orphaned temp chunks`)
-    } catch (e) {
-      console.error('Scheduled cleanup failed:', e)
-    }
-  },
 }

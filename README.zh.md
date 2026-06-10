@@ -66,9 +66,9 @@ Cloudflare Worker (Hono API)
 
 - **Worker 无认证逻辑** — Cloudflare Access 在边缘层处理所有认证。Worker 信任每个到达的请求为 Owner 操作
 - **D1 仅存元数据** — 文件内容永不存入 D1；仅存储文件记录、文件夹层级、哈希索引和分享链接
-- **R2 存储文件** — 文件以 `uploads/{uuid}/{fileName}` 路径存储；临时分片以 `temp/{uploadId}/{chunkIndex}` 存储，24h 后自动清理
+- **R2 存储文件** — 文件以 `uploads/{uuid}/{fileName}` 路径通过 R2 原生分片上传存储，无需服务端数据组装
 - **文件去重范围**：全局（任何非回收站中具有相同哈希的文件），≤50MB 文件计算客户端 SHA-256
-- **分片上传** 使用 `FixedLengthStream(totalSize)` 满足 R2 的内容长度要求，服务端流式组装
+- **分片上传**（>50MB）将分片直接作为 R2 分片并行上传，`/complete` 仅做元数据操作（< 100ms）
 - **公开分享路由**（`/s/*`、`/api/v1/s/*`）需在 Cloudflare Access 中创建 Bypass 策略。`/assets/*` 也需要放行，因为 SPA 静态资源从此路径加载
 
 ---
@@ -186,22 +186,23 @@ wrangler deploy
 
 ### 文件
 
-| 方法     | 路径                                      | 说明                          |
-| -------- | ----------------------------------------- | ----------------------------- |
-| `GET`    | `/api/v1/files`                           | 列出根目录                    |
-| `GET`    | `/api/v1/files?parentId={id}`             | 列出文件夹内容                |
-| `GET`    | `/api/v1/files/search?q=`                 | 搜索文件                      |
-| `GET`    | `/api/v1/files/by-hash?hash=`             | 通过 SHA-256 查找文件（去重） |
-| `POST`   | `/api/v1/files/instant`                   | 秒传                          |
-| `GET`    | `/api/v1/files/:id`                       | 获取文件/文件夹元数据         |
-| `POST`   | `/api/v1/files`                           | 创建文件夹                    |
-| `POST`   | `/api/v1/files/upload`                    | 上传文件（≤50MB）             |
-| `POST`   | `/api/v1/files/upload/chunk`              | 上传分片                      |
-| `POST`   | `/api/v1/files/upload/:uploadId/complete` | 完成分片上传                  |
-| `POST`   | `/api/v1/files/:id/copy`                  | 复制文件/文件夹               |
-| `PATCH`  | `/api/v1/files/:id`                       | 重命名/移动                   |
-| `DELETE` | `/api/v1/files/:id`                       | 移入回收站                    |
-| `GET`    | `/api/v1/files/:id/download`              | 下载文件                      |
+| 方法     | 路径                            | 说明                          |
+| -------- | ------------------------------- | ----------------------------- |
+| `GET`    | `/api/v1/files`                 | 列出根目录                    |
+| `GET`    | `/api/v1/files?parentId={id}`   | 列出文件夹内容                |
+| `GET`    | `/api/v1/files/search?q=`       | 搜索文件                      |
+| `GET`    | `/api/v1/files/by-hash?hash=`   | 通过 SHA-256 查找文件（去重） |
+| `POST`   | `/api/v1/files/instant`         | 秒传                          |
+| `GET`    | `/api/v1/files/:id`             | 获取文件/文件夹元数据         |
+| `POST`   | `/api/v1/files`                 | 创建文件夹                    |
+| `POST`   | `/api/v1/files/upload`          | 上传文件（≤50MB）             |
+| `POST`   | `/api/v1/files/upload/create`   | 创建分片上传                  |
+| `POST`   | `/api/v1/files/upload/part`     | 上传一个分片                  |
+| `POST`   | `/api/v1/files/upload/complete` | 完成分片上传                  |
+| `POST`   | `/api/v1/files/:id/copy`        | 复制文件/文件夹               |
+| `PATCH`  | `/api/v1/files/:id`             | 重命名/移动                   |
+| `DELETE` | `/api/v1/files/:id`             | 移入回收站                    |
+| `GET`    | `/api/v1/files/:id/download`    | 下载文件                      |
 
 ### 回收站
 

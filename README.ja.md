@@ -66,9 +66,9 @@ Cloudflare Worker (Hono API)
 
 - **Worker に認証ロジックなし** — Cloudflare Access がエッジで全認証を処理。Worker は全てのリクエストを Owner 操作として信頼
 - **D1 はメタデータのみ** — ファイルコンテンツは D1 に保存せず、ファイルレコード、フォルダ階層、ハッシュインデックス、共有リンクのみ
-- **R2 にファイル保存** — ファイルは `uploads/{uuid}/{fileName}` に保存。一時チャンクは `temp/{uploadId}/{chunkIndex}` に保存され、24時間後に自動削除
+- **R2 にファイル保存** — ファイルは `uploads/{uuid}/{fileName}` にR2ネイティブマルチパートアップロードで保存。サーバー側でのデータ結合は不要
 - **重複排除範囲**: グローバル（同じハッシュを持つゴミ箱以外のファイル）、50MB以下のファイルでクライアントSHA-256ハッシュを計算
-- **チャンクアップロード**は `FixedLengthStream(totalSize)` を使用してR2のコンテンツ長要件を満たし、サーバー側でストリームを結合
+- **チャンクアップロード**（50MB超）はパートを直接R2マルチパートとして並行アップロード。`/complete` はメタデータのみの操作（< 100ms）
 - **公開共有ルート**（`/s/*`、`/api/v1/s/*`）は Cloudflare Access で Bypass ポリシーを設定する必要があります。SPAの静的リソースが `/assets/*` から読み込まれるため、これもバイパス対象に含める必要があります
 
 ---
@@ -186,22 +186,23 @@ wrangler deploy
 
 ### ファイル
 
-| メソッド | パス                                      | 説明                               |
-| -------- | ----------------------------------------- | ---------------------------------- |
-| `GET`    | `/api/v1/files`                           | ルートディレクトリの一覧           |
-| `GET`    | `/api/v1/files?parentId={id}`             | フォルダ内容の一覧                 |
-| `GET`    | `/api/v1/files/search?q=`                 | ファイル検索                       |
-| `GET`    | `/api/v1/files/by-hash?hash=`             | SHA-256 ハッシュで検索（重複排除） |
-| `POST`   | `/api/v1/files/instant`                   | 瞬時アップロード                   |
-| `GET`    | `/api/v1/files/:id`                       | ファイル/フォルダメタデータの取得  |
-| `POST`   | `/api/v1/files`                           | フォルダの作成                     |
-| `POST`   | `/api/v1/files/upload`                    | ファイルアップロード（50MB以下）   |
-| `POST`   | `/api/v1/files/upload/chunk`              | チャンクのアップロード             |
-| `POST`   | `/api/v1/files/upload/:uploadId/complete` | チャンクアップロードの完了         |
-| `POST`   | `/api/v1/files/:id/copy`                  | ファイル/フォルダのコピー          |
-| `PATCH`  | `/api/v1/files/:id`                       | 名前変更/移動                      |
-| `DELETE` | `/api/v1/files/:id`                       | ゴミ箱へ移動                       |
-| `GET`    | `/api/v1/files/:id/download`              | ファイルのダウンロード             |
+| メソッド | パス                            | 説明                               |
+| -------- | ------------------------------- | ---------------------------------- |
+| `GET`    | `/api/v1/files`                 | ルートディレクトリの一覧           |
+| `GET`    | `/api/v1/files?parentId={id}`   | フォルダ内容の一覧                 |
+| `GET`    | `/api/v1/files/search?q=`       | ファイル検索                       |
+| `GET`    | `/api/v1/files/by-hash?hash=`   | SHA-256 ハッシュで検索（重複排除） |
+| `POST`   | `/api/v1/files/instant`         | 瞬時アップロード                   |
+| `GET`    | `/api/v1/files/:id`             | ファイル/フォルダメタデータの取得  |
+| `POST`   | `/api/v1/files`                 | フォルダの作成                     |
+| `POST`   | `/api/v1/files/upload`          | ファイルアップロード（50MB以下）   |
+| `POST`   | `/api/v1/files/upload/create`   | マルチパートアップロードを作成     |
+| `POST`   | `/api/v1/files/upload/part`     | パートをアップロード               |
+| `POST`   | `/api/v1/files/upload/complete` | マルチパートアップロードを完了     |
+| `POST`   | `/api/v1/files/:id/copy`        | ファイル/フォルダのコピー          |
+| `PATCH`  | `/api/v1/files/:id`             | 名前変更/移動                      |
+| `DELETE` | `/api/v1/files/:id`             | ゴミ箱へ移動                       |
+| `GET`    | `/api/v1/files/:id/download`    | ファイルのダウンロード             |
 
 ### ゴミ箱
 

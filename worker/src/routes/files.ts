@@ -103,44 +103,64 @@ files.post('/', async (c) => {
   return c.json(item, 201)
 })
 
-files.post('/upload/chunk', async (c) => {
-  const form = await c.req.formData()
-  const uploadId = form.get('uploadId') as string
-  const chunkIndex = parseInt(form.get('chunkIndex') as string, 10)
-  const chunk = form.get('chunk') as File | null
-  if (!uploadId || isNaN(chunkIndex) || !chunk) return c.json({ error: 'Missing required fields' }, 400)
+files.post('/upload/create', async (c) => {
+  const body = await c.req.json<{ name: string }>()
+  if (!body.name) return c.json({ error: 'name is required' }, 400)
+  const safeName = body.name.replace(/[/\\]/g, '_')
+  const key = `uploads/${crypto.randomUUID()}/${safeName}`
   const storage = createStorageRepository(c.env.STORAGE)
-  await storage.upload(`temp/${uploadId}/${chunkIndex}`, chunk)
-  return c.json({ uploadId, chunkIndex, received: true })
+  const mpu = await storage.createMultipartUpload(key)
+  return c.json({ uploadId: mpu.uploadId, key })
 })
 
-files.post('/upload/:uploadId/complete', async (c) => {
-  try {
-    const body = await c.req.json<{
-      totalChunks: number
-      name: string
-      parentId?: string | null
-      mimeType?: string | null
-    }>()
-    const uploadId = c.req.param('uploadId')
-    if (!body.name || !Number.isInteger(body.totalChunks) || body.totalChunks < 1) {
-      return c.json({ error: 'Missing required fields' }, 400)
-    }
-    const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
-    const item = await svc.finalizeChunkedUpload(
-      uploadId,
-      body.totalChunks,
-      body.parentId ?? null,
-      body.name,
-      body.mimeType ?? 'application/octet-stream',
-    )
-    const origin = new URL(c.req.url).origin
-    c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
-    return c.json(item, 201)
-  } catch (e) {
-    console.error('complete error:', e)
-    return c.json({ error: (e as Error).message }, 500)
+files.post('/upload/part', async (c) => {
+  const form = await c.req.formData()
+  const uploadId = form.get('uploadId') as string
+  const key = form.get('key') as string
+  const partNumber = parseInt(form.get('partNumber') as string, 10)
+  const chunk = form.get('chunk') as File | null
+  if (!uploadId || !key || isNaN(partNumber) || !chunk) {
+    return c.json({ error: 'Missing required fields' }, 400)
   }
+  const storage = createStorageRepository(c.env.STORAGE)
+  const mpu = storage.resumeMultipartUpload(key, uploadId)
+  const part = await storage.uploadPart(mpu, partNumber, chunk)
+  return c.json({ partNumber: part.partNumber, etag: part.etag })
+})
+
+files.post('/upload/complete', async (c) => {
+  const body = await c.req.json<{
+    uploadId: string
+    key: string
+    parts: { partNumber: number; etag: string }[]
+    name: string
+    parentId?: string | null
+    mimeType?: string | null
+  }>()
+  if (!body.uploadId || !body.key || !body.name || !body.parts) {
+    return c.json({ error: 'Missing required fields' }, 400)
+  }
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const item = await svc.finalizeMultipartUpload(
+    body.uploadId,
+    body.key,
+    body.parts,
+    body.parentId ?? null,
+    body.name,
+    body.mimeType ?? 'application/octet-stream',
+  )
+  const origin = new URL(c.req.url).origin
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  return c.json(item, 201)
+})
+
+files.post('/upload/abort', async (c) => {
+  const body = await c.req.json<{ uploadId: string; key: string }>()
+  if (!body.uploadId || !body.key) return c.json({ error: 'uploadId and key are required' }, 400)
+  const storage = createStorageRepository(c.env.STORAGE)
+  const mpu = storage.resumeMultipartUpload(body.key, body.uploadId)
+  await storage.abortMultipartUpload(mpu)
+  return c.body(null, 204)
 })
 
 files.post('/upload', async (c) => {

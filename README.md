@@ -66,9 +66,9 @@ Cloudflare Worker (Hono API)
 
 - **Zero auth logic in Worker** — Cloudflare Access handles all authentication at the edge. The Worker trusts every request it receives as an Owner operation.
 - **D1 for metadata only** — file content never stored in D1; only file records, folder hierarchy, hash index, and share links.
-- **R2 for blobs** — files stored at `uploads/{uuid}/{fileName}`; temp chunks at `temp/{uploadId}/{chunkIndex}` auto-cleaned after 24h.
+- **R2 for blobs** — files stored at `uploads/{uuid}/{fileName}` via R2 native multipart upload. No server-side data assembly.
 - **File dedup scope**: global (any non-trashed file with the same hash), client SHA-256 computed for files ≤50MB.
-- **Chunked upload** uses `FixedLengthStream(totalSize)` to satisfy R2's content-length requirement. Server-side stream assembly.
+- **Chunked upload** (>50MB) uploads directly as parallel R2 multipart parts. `/complete` is a metadata-only operation (< 100ms).
 - **Public share routes** (`/s/*`, `/api/v1/s/*`) must bypass Cloudflare Access via a Bypass policy with path selectors. `/assets/*` is also needed because SPA static resources load from that path.
 
 ---
@@ -187,22 +187,23 @@ All endpoints are prefixed with `/api/v1`.
 
 ### Files
 
-| Method   | Path                                      | Description                       |
-| -------- | ----------------------------------------- | --------------------------------- |
-| `GET`    | `/api/v1/files`                           | List root directory               |
-| `GET`    | `/api/v1/files?parentId={id}`             | List folder contents              |
-| `GET`    | `/api/v1/files/search?q=`                 | Search files                      |
-| `GET`    | `/api/v1/files/by-hash?hash=`             | Find file by SHA-256 hash (dedup) |
-| `POST`   | `/api/v1/files/instant`                   | Instant upload from existing hash |
-| `GET`    | `/api/v1/files/:id`                       | Get file/folder metadata          |
-| `POST`   | `/api/v1/files`                           | Create folder                     |
-| `POST`   | `/api/v1/files/upload`                    | Upload file (≤50MB)               |
-| `POST`   | `/api/v1/files/upload/chunk`              | Upload a single chunk             |
-| `POST`   | `/api/v1/files/upload/:uploadId/complete` | Complete chunked upload           |
-| `POST`   | `/api/v1/files/:id/copy`                  | Copy file/folder                  |
-| `PATCH`  | `/api/v1/files/:id`                       | Rename/move file/folder           |
-| `DELETE` | `/api/v1/files/:id`                       | Move to trash                     |
-| `GET`    | `/api/v1/files/:id/download`              | Download file                     |
+| Method   | Path                            | Description                       |
+| -------- | ------------------------------- | --------------------------------- |
+| `GET`    | `/api/v1/files`                 | List root directory               |
+| `GET`    | `/api/v1/files?parentId={id}`   | List folder contents              |
+| `GET`    | `/api/v1/files/search?q=`       | Search files                      |
+| `GET`    | `/api/v1/files/by-hash?hash=`   | Find file by SHA-256 hash (dedup) |
+| `POST`   | `/api/v1/files/instant`         | Instant upload from existing hash |
+| `GET`    | `/api/v1/files/:id`             | Get file/folder metadata          |
+| `POST`   | `/api/v1/files`                 | Create folder                     |
+| `POST`   | `/api/v1/files/upload`          | Upload file (≤50MB)               |
+| `POST`   | `/api/v1/files/upload/create`   | Create multipart upload           |
+| `POST`   | `/api/v1/files/upload/part`     | Upload a single multipart part    |
+| `POST`   | `/api/v1/files/upload/complete` | Complete multipart upload         |
+| `POST`   | `/api/v1/files/:id/copy`        | Copy file/folder                  |
+| `PATCH`  | `/api/v1/files/:id`             | Rename/move file/folder           |
+| `DELETE` | `/api/v1/files/:id`             | Move to trash                     |
+| `GET`    | `/api/v1/files/:id/download`    | Download file                     |
 
 ### Trash
 

@@ -1,5 +1,3 @@
-const TEMP_CHUNK_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
-
 export function createStorageRepository(storage: R2Bucket) {
   async function upload(key: string, value: ReadableStream | ArrayBuffer | Blob) {
     return await storage.put(key, value)
@@ -13,28 +11,38 @@ export function createStorageRepository(storage: R2Bucket) {
     await storage.delete(key)
   }
 
-  async function deleteChunks(prefix: string, total: number): Promise<void> {
-    const keys = Array.from({ length: total }, (_, i) => `${prefix}${i}`)
-    await storage.delete(keys)
+  async function createMultipartUpload(key: string): Promise<R2MultipartUpload> {
+    return await storage.createMultipartUpload(key)
   }
 
-  /** Delete orphaned temp chunks uploaded before the cutoff time. Returns count of deleted objects. */
-  async function deleteOrphanedTempChunks(cutoff: Date): Promise<number> {
-    let deleted = 0
-    let cursor: string | undefined
-    do {
-      const result = await storage.list({ prefix: 'temp/', cursor, limit: 1000 })
-      const staleKeys = result.objects.filter((obj) => obj.uploaded < cutoff).map((obj) => obj.key)
-      if (staleKeys.length > 0) {
-        await storage.delete(staleKeys)
-        deleted += staleKeys.length
-      }
-      cursor = result.truncated ? result.cursor : undefined
-    } while (cursor)
-    return deleted
+  function resumeMultipartUpload(key: string, uploadId: string): R2MultipartUpload {
+    return storage.resumeMultipartUpload(key, uploadId)
   }
 
-  return { upload, download, remove, deleteChunks, deleteOrphanedTempChunks }
+  async function uploadPart(
+    mpu: R2MultipartUpload,
+    partNumber: number,
+    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+  ): Promise<R2UploadedPart> {
+    return await mpu.uploadPart(partNumber, value)
+  }
+
+  async function completeMultipartUpload(mpu: R2MultipartUpload, parts: R2UploadedPart[]): Promise<R2Object> {
+    return await mpu.complete(parts)
+  }
+
+  async function abortMultipartUpload(mpu: R2MultipartUpload): Promise<void> {
+    await mpu.abort()
+  }
+
+  return {
+    upload,
+    download,
+    remove,
+    createMultipartUpload,
+    resumeMultipartUpload,
+    uploadPart,
+    completeMultipartUpload,
+    abortMultipartUpload,
+  }
 }
-
-export { TEMP_CHUNK_TTL_MS }

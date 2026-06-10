@@ -23,8 +23,11 @@ type MockStorageRepo = {
   upload: ReturnType<typeof vi.fn>
   download: ReturnType<typeof vi.fn>
   remove: ReturnType<typeof vi.fn>
-  deleteChunks: ReturnType<typeof vi.fn>
-  deleteOrphanedTempChunks: ReturnType<typeof vi.fn>
+  createMultipartUpload: ReturnType<typeof vi.fn>
+  resumeMultipartUpload: ReturnType<typeof vi.fn>
+  uploadPart: ReturnType<typeof vi.fn>
+  completeMultipartUpload: ReturnType<typeof vi.fn>
+  abortMultipartUpload: ReturnType<typeof vi.fn>
 }
 
 type MockShareRepo = {
@@ -61,8 +64,11 @@ function createMockStorageRepo(): MockStorageRepo {
     upload: vi.fn().mockResolvedValue(undefined),
     download: vi.fn(),
     remove: vi.fn(),
-    deleteChunks: vi.fn(),
-    deleteOrphanedTempChunks: vi.fn(),
+    createMultipartUpload: vi.fn(),
+    resumeMultipartUpload: vi.fn(),
+    uploadPart: vi.fn(),
+    completeMultipartUpload: vi.fn(),
+    abortMultipartUpload: vi.fn(),
   }
 }
 
@@ -107,9 +113,15 @@ describe('createFileService', () => {
     storageRepo = createMockStorageRepo()
     shareRepo = createMockShareRepo()
     svc = createFileService(
-      fileRepo as unknown as ReturnType<typeof import('../../src/repositories/fileRepository')['createFileRepository']>,
-      storageRepo as unknown as ReturnType<typeof import('../../src/repositories/storageRepository')['createStorageRepository']>,
-      shareRepo as unknown as ReturnType<typeof import('../../src/repositories/shareRepository')['createShareRepository']>,
+      fileRepo as unknown as ReturnType<
+        (typeof import('../../src/repositories/fileRepository'))['createFileRepository']
+      >,
+      storageRepo as unknown as ReturnType<
+        (typeof import('../../src/repositories/storageRepository'))['createStorageRepository']
+      >,
+      shareRepo as unknown as ReturnType<
+        (typeof import('../../src/repositories/shareRepository'))['createShareRepository']
+      >,
     )
   })
 
@@ -383,7 +395,13 @@ describe('createFileService', () => {
     it('copies a folder recursively', async () => {
       const folder = makeFile({ type: 'folder', id: 'folder-1', r2Key: null })
       const childFile = makeFile({ type: 'file', id: 'child1', parentId: 'folder-1', r2Key: 'child-key' })
-      const copiedFolder = makeFile({ type: 'folder', id: 'copied-folder', name: 'folder-1', parentId: 'new-parent', r2Key: null })
+      const copiedFolder = makeFile({
+        type: 'folder',
+        id: 'copied-folder',
+        name: 'folder-1',
+        parentId: 'new-parent',
+        r2Key: null,
+      })
 
       fileRepo.findById.mockImplementation(async (id: string) => {
         if (id === 'folder-1') return folder

@@ -15,6 +15,8 @@ const UPLOAD_DONE_PERCENT = 100
 const MAX_CONCURRENT_UPLOADS = 4
 const CHUNK_THRESHOLD = 50 * 1024 * 1024
 const CHUNK_SIZE = 5 * 1024 * 1024
+const MAX_CHUNK_RETRIES = 3
+const RETRY_BASE_DELAY = 1000
 
 let globalInstance: ReturnType<typeof createUploadState> | null = null
 
@@ -125,13 +127,67 @@ function createUploadState() {
     onProgress?: (percent: number) => void,
   ): Promise<void> {
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
-    const uploadId = crypto.randomUUID()
     const chunkProgress = new Array<number>(totalChunks).fill(0)
     const concurrency = Math.min(MAX_CONCURRENT_UPLOADS, totalChunks)
 
     function emitProgress() {
       const sum = chunkProgress.reduce((a, b) => a + b, 0)
       onProgress?.(Math.round((sum / totalChunks) * UPLOAD_DONE_PERCENT))
+    }
+
+    const createRes = await fetch('/api/v1/files/upload/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: file.name }),
+    })
+    if (!createRes.ok) throw new Error('Failed to create multipart upload')
+    const { uploadId, key } = await createRes.json()
+
+    const parts: { partNumber: number; etag: string }[] = []
+
+    async function uploadSingleChunk(index: number, blob: Blob, attempt: number = 0): Promise<void> {
+      try {
+        const { etag } = await new Promise<{ etag: string }>((resolve, reject) => {
+          const form = new FormData()
+          form.append('uploadId', uploadId)
+          form.append('key', key)
+          form.append('partNumber', String(index + 1))
+          form.append('chunk', blob)
+          const xhr = new XMLHttpRequest()
+          xhr.open('POST', '/api/v1/files/upload/part')
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              chunkProgress[index] = e.loaded / e.total
+              emitProgress()
+            }
+          }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText))
+              } catch {
+                reject(new Error('Invalid chunk upload response'))
+              }
+            } else {
+              reject(new Error('Chunk upload failed'))
+            }
+          }
+          xhr.onerror = () => reject(new Error('Chunk upload failed'))
+          xhr.send(form)
+        })
+        chunkProgress[index] = 1
+        emitProgress()
+        parts.push({ partNumber: index + 1, etag })
+      } catch (err) {
+        if (attempt < MAX_CHUNK_RETRIES) {
+          chunkProgress[index] = 0
+          emitProgress()
+          const delay = (attempt + 1) ** 2 * RETRY_BASE_DELAY
+          await new Promise((r) => setTimeout(r, delay))
+          return uploadSingleChunk(index, blob, attempt + 1)
+        }
+        throw err
+      }
     }
 
     const queue = Array.from({ length: totalChunks }, (_, i) => i)
@@ -142,49 +198,36 @@ function createUploadState() {
         const start = i * CHUNK_SIZE
         const end = Math.min(start + CHUNK_SIZE, file.size)
         const blob = file.slice(start, end)
-
-        await new Promise<void>((resolve, reject) => {
-          const form = new FormData()
-          form.append('uploadId', uploadId)
-          form.append('chunkIndex', String(i))
-          form.append('chunk', blob)
-          const xhr = new XMLHttpRequest()
-          xhr.open('POST', '/api/v1/files/upload/chunk')
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-              chunkProgress[i] = e.loaded / e.total
-              emitProgress()
-            }
-          }
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              chunkProgress[i] = 1
-              emitProgress()
-              resolve()
-            } else {
-              reject(new Error('Chunk upload failed'))
-            }
-          }
-          xhr.onerror = () => reject(new Error('Chunk upload failed'))
-          xhr.send(form)
-        })
+        await uploadSingleChunk(i, blob)
       }
     }
 
     const workers = Array.from({ length: concurrency }, () => worker())
-    await Promise.all(workers)
+    try {
+      await Promise.all(workers)
+    } catch {
+      await fetch('/api/v1/files/upload/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId, key }),
+      }).catch(() => {})
+      throw new Error('Upload aborted')
+    }
+    parts.sort((a, b) => a.partNumber - b.partNumber)
 
-    const res = await fetch(`/api/v1/files/upload/${uploadId}/complete`, {
+    const res = await fetch('/api/v1/files/upload/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        totalChunks,
+        uploadId,
+        key,
+        parts,
         name: file.name,
         parentId,
         mimeType: file.type,
       }),
     })
-    if (!res.ok) throw new Error('Failed to complete chunked upload')
+    if (!res.ok) throw new Error('Failed to complete multipart upload')
     onProgress?.(UPLOAD_DONE_PERCENT)
   }
 
