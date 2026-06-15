@@ -13,7 +13,7 @@
 - **文件去重**：客户端 SHA-256 哈希，秒传已存在的文件（≤50MB）
 - 单文件及分享文件夹下载
 - 图片与文本预览
-- **分享链接**：创建可设置过期时间的公开分享链接，浏览分享文件夹
+- **分享链接**：创建可设置过期时间和可选密码保护的公开分享链接，浏览分享文件夹
 - 回收站管理：恢复、永久删除、清空回收站、批量操作
 - 按名称搜索文件
 - 剪贴板操作（复制/剪切/粘贴）、多选、批量操作
@@ -167,7 +167,20 @@ pnpm dev:worker   # 启动于 localhost:8787
 pnpm dev:frontend # 启动于 localhost:5173，代理 /api 至 localhost:8787
 ```
 
-### 6. 部署
+### 6. 设置分享链接密码密钥
+
+```bash
+# 本地开发
+cd worker
+wrangler secret put SHARED_SECRET --local
+
+# 生产环境
+wrangler secret put SHARED_SECRET
+```
+
+该密钥用于签名和验证密码保护分享链接的令牌。建议生成 64 位随机字符串。如果未设置，代码内有一个固定 fallback（仅限本地开发）——**生产环境必须设置此密钥**。
+
+### 7. 部署
 
 ```bash
 # 构建前端
@@ -215,14 +228,18 @@ wrangler deploy
 
 ### 分享链接
 
-| 方法     | 路径                                | 说明                     |
-| -------- | ----------------------------------- | ------------------------ |
-| `GET`    | `/api/v1/shares`                    | 列出分享链接             |
-| `POST`   | `/api/v1/shares`                    | 创建分享链接             |
-| `DELETE` | `/api/v1/shares/:id`                | 撤销分享链接             |
-| `GET`    | `/api/v1/s/:token`                  | 公开访问（文件/文件夹）  |
-| `GET`    | `/api/v1/s/:token/download`         | 公开下载分享文件         |
-| `GET`    | `/api/v1/s/:token/download/:fileId` | 公开下载分享文件夹内文件 |
+| 方法     | 路径                                | 说明                                    |
+| -------- | ----------------------------------- | --------------------------------------- |
+| `GET`    | `/api/v1/shares`                    | 列出分享链接                            |
+| `POST`   | `/api/v1/shares`                    | 创建分享链接（支持 `password`）         |
+| `DELETE` | `/api/v1/shares/:id`                | 撤销分享链接                            |
+| `POST`   | `/api/v1/s/:token/verify`           | 验证分享密码 → 返回 `verify_token`      |
+| `GET`    | `/api/v1/s/:token`                  | 公开访问（文件/文件夹）                 |
+| `GET`    | `/api/v1/s/:token/browse/:folderId` | 浏览分享文件夹内子文件夹                |
+| `GET`    | `/api/v1/s/:token/download`         | 公开下载分享文件（支持 `?vt=`）         |
+| `GET`    | `/api/v1/s/:token/download/:fileId` | 公开下载分享文件夹内文件（支持 `?vt=`） |
+
+> 密码保护的分享需要在请求头中携带 `X-Verify-Token`（下载链接可使用 `?vt=` 查询参数），通过 `POST /verify` 获取。
 
 ---
 
@@ -246,13 +263,15 @@ wrangler deploy
 
 ### `shares`
 
-| 列名         | 类型        | 说明                        |
-| ------------ | ----------- | --------------------------- |
-| `id`         | TEXT (UUID) | 主键                        |
-| `file_id`    | TEXT        | 外键 → `files.id`           |
-| `token`      | TEXT        | 唯一分享令牌                |
-| `expires_at` | TEXT        | 过期时间（NULL = 永不过期） |
-| `created_at` | TEXT        | ISO 8601 时间戳             |
+| 列名            | 类型        | 说明                              |
+| --------------- | ----------- | --------------------------------- |
+| `id`            | TEXT (UUID) | 主键                              |
+| `file_id`       | TEXT        | 外键 → `files.id`                 |
+| `token`         | TEXT        | 唯一分享令牌                      |
+| `expires_at`    | TEXT        | 过期时间（NULL = 永不过期）       |
+| `created_at`    | TEXT        | ISO 8601 时间戳                   |
+| `password_hash` | TEXT        | SHA-256 密码哈希（NULL = 无密码） |
+| `password_salt` | TEXT        | 随机 UUID 盐值（NULL = 无密码）   |
 
 ---
 

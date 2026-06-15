@@ -16,8 +16,8 @@ export const useShareStore = defineStore('shares', () => {
     }
   }
 
-  async function create(fileId: string, expiresAt?: string | null) {
-    await api.createShare(fileId, expiresAt)
+  async function create(fileId: string, expiresAt?: string | null, password?: string) {
+    await api.createShare(fileId, expiresAt, password)
     await loadShares()
   }
 

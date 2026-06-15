@@ -85,6 +85,8 @@ function makeShare(overrides: Partial<ShareRecord> = {}): ShareRecord {
     token: crypto.randomUUID(),
     expiresAt: null,
     createdAt: '2024-01-01T00:00:00Z',
+    passwordHash: null,
+    passwordSalt: null,
     ...overrides,
   }
 }
@@ -104,6 +106,7 @@ describe('createShareService', () => {
       fileRepo as unknown as ReturnType<
         (typeof import('../../src/repositories/fileRepository'))['createFileRepository']
       >,
+      'test-secret',
     )
   })
 
@@ -121,6 +124,8 @@ describe('createShareService', () => {
         fileId: file.id,
         token: expect.any(String),
         expiresAt: null,
+        passwordHash: null,
+        passwordSalt: null,
       })
     })
 
@@ -135,6 +140,8 @@ describe('createShareService', () => {
         fileId: file.id,
         token: expect.any(String),
         expiresAt,
+        passwordHash: null,
+        passwordSalt: null,
       })
     })
 

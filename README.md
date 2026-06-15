@@ -13,7 +13,7 @@ A personal cloud drive built on Cloudflare's free tier (Workers + D1 + R2), feat
 - **File deduplication**: client-side SHA-256 hashing, instant upload for files already on server (≤50MB)
 - Download single files or from shared folders
 - Image & text preview
-- **Share links**: create expiring public share links for files or folders, browse shared folders
+- **Share links**: create expiring public share links with optional password protection for files or folders, browse shared folders
 - Trash management: restore, permanent delete, empty trash, batch operations
 - Search files by name
 - Clipboard operations (copy/cut/paste), multi-select, batch actions
@@ -168,7 +168,20 @@ pnpm dev:worker   # starts at localhost:8787
 pnpm dev:frontend # starts at localhost:5173, proxies /api to localhost:8787
 ```
 
-### 6. Deploy
+### 6. Set share link password secret
+
+```bash
+# Local development
+cd worker
+wrangler secret put SHARED_SECRET --local
+
+# Production
+wrangler secret put SHARED_SECRET
+```
+
+This secret is used to sign and verify tokens for password-protected share links. Generate a random 64-character string. If not set, a hardcoded fallback is used for local dev only — **you must set this in production**.
+
+### 7. Deploy
 
 ```bash
 # Build frontend
@@ -216,14 +229,18 @@ All endpoints are prefixed with `/api/v1`.
 
 ### Share Links
 
-| Method   | Path                                | Description                        |
-| -------- | ----------------------------------- | ---------------------------------- |
-| `GET`    | `/api/v1/shares`                    | List share links                   |
-| `POST`   | `/api/v1/shares`                    | Create share link                  |
-| `DELETE` | `/api/v1/shares/:id`                | Revoke share link                  |
-| `GET`    | `/api/v1/s/:token`                  | Public access (file/folder)        |
-| `GET`    | `/api/v1/s/:token/download`         | Public file download               |
-| `GET`    | `/api/v1/s/:token/download/:fileId` | Public download from shared folder |
+| Method   | Path                                | Description                                 |
+| -------- | ----------------------------------- | ------------------------------------------- |
+| `GET`    | `/api/v1/shares`                    | List share links                            |
+| `POST`   | `/api/v1/shares`                    | Create share link (supports `password`)     |
+| `DELETE` | `/api/v1/shares/:id`                | Revoke share link                           |
+| `POST`   | `/api/v1/s/:token/verify`           | Verify share password → `verify_token`      |
+| `GET`    | `/api/v1/s/:token`                  | Public access (file/folder)                 |
+| `GET`    | `/api/v1/s/:token/browse/:folderId` | Browse subfolder in shared folder           |
+| `GET`    | `/api/v1/s/:token/download`         | Public file download (supports `?vt=`)      |
+| `GET`    | `/api/v1/s/:token/download/:fileId` | Public download from shared folder (`?vt=`) |
+
+> Password-protected shares require a `X-Verify-Token` header (or `?vt=` query param for downloads) obtained from `POST /verify`.
 
 ---
 
@@ -247,13 +264,15 @@ All endpoints are prefixed with `/api/v1`.
 
 ### `shares`
 
-| Column       | Type        | Description                   |
-| ------------ | ----------- | ----------------------------- |
-| `id`         | TEXT (UUID) | Primary key                   |
-| `file_id`    | TEXT        | Foreign key → `files.id`      |
-| `token`      | TEXT        | Unique share token (URL-safe) |
-| `expires_at` | TEXT        | Expiration (NULL = never)     |
-| `created_at` | TEXT        | ISO 8601 timestamp            |
+| Column          | Type        | Description                           |
+| --------------- | ----------- | ------------------------------------- |
+| `id`            | TEXT (UUID) | Primary key                           |
+| `file_id`       | TEXT        | Foreign key → `files.id`              |
+| `token`         | TEXT        | Unique share token (URL-safe)         |
+| `expires_at`    | TEXT        | Expiration (NULL = never)             |
+| `created_at`    | TEXT        | ISO 8601 timestamp                    |
+| `password_hash` | TEXT        | SHA-256 hash (NULL = no password)     |
+| `password_salt` | TEXT        | Random UUID salt (NULL = no password) |
 
 ---
 

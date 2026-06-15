@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NButton, NModal, NSpace, NSelect, useMessage } from 'naive-ui'
+import { ref, watch, computed } from 'vue'
+import { NButton, NCheckbox, NInput, NModal, NSpace, NSelect, useMessage } from 'naive-ui'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useShareStore } from '@/stores/shareStore'
 import { useRequest } from '@/composables/useRequest'
@@ -21,15 +21,27 @@ const shareStore = useShareStore()
 const message = useMessage()
 
 const shareExpiryDays = ref<number>(0)
+const enablePassword = ref(false)
+const sharePassword = ref('')
 
 watch(
   () => props.show,
   (val) => {
     if (val) {
       shareExpiryDays.value = 0
+      enablePassword.value = false
+      sharePassword.value = ''
     }
   },
 )
+
+const MIN_PASSWORD_LENGTH = 4
+const MAX_PASSWORD_LENGTH = 128
+
+const passwordValid = computed(() => {
+  if (!enablePassword.value) return true
+  return sharePassword.value.length >= MIN_PASSWORD_LENGTH && sharePassword.value.length <= MAX_PASSWORD_LENGTH
+})
 
 const { loading: sharingLoading, execute: handleCreateShare } = useRequest(
   async () => {
@@ -41,7 +53,7 @@ const { loading: sharingLoading, execute: handleCreateShare } = useRequest(
       d.setDate(d.getDate() + shareExpiryDays.value)
       expiresAt = d.toISOString()
     }
-    await shareStore.create(target.id, expiresAt)
+    await shareStore.create(target.id, expiresAt, enablePassword.value ? sharePassword.value : undefined)
     message.success(settings.t('shareLinkCreated'))
     emit('shared')
     emit('update:show', false)
@@ -74,8 +86,24 @@ const { loading: sharingLoading, execute: handleCreateShare } = useRequest(
         :placeholder="settings.t('expiry')"
       />
     </NSpace>
+    <NSpace vertical style="margin-top: 12px">
+      <NCheckbox v-model:checked="enablePassword">
+        {{ settings.t('setPassword') }}
+      </NCheckbox>
+      <NInput
+        v-if="enablePassword"
+        v-model:value="sharePassword"
+        type="password"
+        show-password-on="click"
+        :placeholder="settings.t('passwordPlaceholder')"
+        :status="sharePassword && !passwordValid ? 'error' : undefined"
+      />
+      <span v-if="enablePassword && sharePassword && !passwordValid" style="color: #e88080; font-size: 12px">
+        {{ settings.t('passwordLengthHint') }} {{ MIN_PASSWORD_LENGTH }}-{{ MAX_PASSWORD_LENGTH }}
+      </span>
+    </NSpace>
     <template #footer>
-      <NButton type="primary" :loading="sharingLoading" @click="handleCreateShare">{{
+      <NButton type="primary" :loading="sharingLoading" :disabled="!passwordValid" @click="handleCreateShare">{{
         settings.t('createLink')
       }}</NButton>
     </template>

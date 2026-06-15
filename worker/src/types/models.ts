@@ -41,6 +41,8 @@ export interface ShareRecord {
   token: string
   expiresAt: string | null
   createdAt: string
+  passwordHash: string | null
+  passwordSalt: string | null
 }
 
 /** Fields for creating a new share link */
@@ -48,6 +50,8 @@ export interface CreateShareInput {
   fileId: string
   token: string
   expiresAt: string | null
+  passwordHash: string | null
+  passwordSalt: string | null
 }
 
 /** Generic paginated result wrapper */

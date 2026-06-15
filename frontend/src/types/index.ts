@@ -23,6 +23,7 @@ export interface ShareRecord {
   fileName: string
   fileType: 'file' | 'folder'
   path: string | null
+  passwordHash: string | null
 }
 
 /** File/folder item within a shared folder listing */
@@ -33,6 +34,11 @@ export interface PublicShareFileItem {
   mimeType: string | null
   size: number
   sizeFormatted: string
+}
+
+/** Verify password response */
+export interface VerifyTokenResponse {
+  verify_token: string
 }
 
 /** Result of a public share lookup */

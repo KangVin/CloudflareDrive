@@ -66,34 +66,105 @@ app.route('/api/v1/files', files)
 app.route('/api/v1/trash', trash)
 app.route('/api/v1/shares', shares)
 
-app.get('/api/v1/s/:token', (c) =>
-  withCache(c.req.raw, c.executionCtx, async () => {
-    const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+app.post('/api/v1/s/:token/verify', async (c) => {
+  const svc = createShareService(
+    createShareRepository(c.env.DB),
+    createFileRepository(c.env.DB),
+    c.env.SHARED_SECRET ?? 'local-dev',
+  )
+  const token = c.req.param('token')
+  const body = await c.req.json<{ password: string }>()
+  if (!body.password) return c.json({ error: 'password is required' }, 400)
+  try {
+    const verifyToken = await svc.verifySharePassword(token, body.password)
+    return c.json({ verify_token: verifyToken })
+  } catch (e) {
+    const msg = (e as Error).message
+    if (msg === 'Wrong password') return c.json({ error: 'wrong_password' }, 403)
+    if (msg === 'Not found') return c.json({ error: 'Not found' }, 404)
+    return c.json({ error: msg }, 400)
+  }
+})
+
+app.get('/api/v1/s/:token', async (c) => {
+  const shareRepo = createShareRepository(c.env.DB)
+  const fileRepo = createFileRepository(c.env.DB)
+  const svc = createShareService(shareRepo, fileRepo, c.env.SHARED_SECRET ?? 'local-dev')
+  const token = c.req.param('token')
+
+  const share = await shareRepo.findByToken(token)
+  if (!share) return c.json({ error: 'Not found or expired' }, 404)
+  if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Not found or expired' }, 404)
+
+  if (share.passwordHash) {
+    const vt = c.req.header('X-Verify-Token')
+    if (!vt || !(await svc.validateVerifyToken(token, vt))) {
+      return c.json({ error: 'password_required' }, 403)
+    }
     const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
     const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
-    const result = await svc.getPublic(c.req.param('token'), page, pageSize)
+    const result = await svc.getPublic(token, page, pageSize)
+    if (!result) return c.json({ error: 'Not found or expired' }, 404)
+    return c.json(result)
+  }
+
+  return withCache(c.req.raw, c.executionCtx, async () => {
+    const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
+    const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
+    const result = await svc.getPublic(token, page, pageSize)
     if (!result) return { status: 404, body: { error: 'Not found or expired' } }
     return { status: 200, body: result }
-  }),
-)
+  })
+})
 
-app.get('/api/v1/s/:token/browse/:folderId', (c) =>
-  withCache(c.req.raw, c.executionCtx, async () => {
-    const svc = createShareService(createShareRepository(c.env.DB), createFileRepository(c.env.DB))
+app.get('/api/v1/s/:token/browse/:folderId', async (c) => {
+  const shareRepo = createShareRepository(c.env.DB)
+  const fileRepo = createFileRepository(c.env.DB)
+  const svc = createShareService(shareRepo, fileRepo, c.env.SHARED_SECRET ?? 'local-dev')
+  const token = c.req.param('token')
+
+  const share = await shareRepo.findByToken(token)
+  if (!share) return c.json({ error: 'Not found' }, 404)
+  if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Not found' }, 404)
+
+  if (share.passwordHash) {
+    const vt = c.req.header('X-Verify-Token')
+    if (!vt || !(await svc.validateVerifyToken(token, vt))) {
+      return c.json({ error: 'password_required' }, 403)
+    }
+    const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
+    const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
+    const result = await svc.getPublicBrowse(token, c.req.param('folderId'), page, pageSize)
+    if (!result) return c.json({ error: 'Not found' }, 404)
+    return c.json(result)
+  }
+
+  return withCache(c.req.raw, c.executionCtx, async () => {
     const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
     const pageSize = Math.min(100, Math.max(1, parseInt(c.req.query('pageSize') ?? '50', 10)))
     const result = await svc.getPublicBrowse(c.req.param('token'), c.req.param('folderId'), page, pageSize)
     if (!result) return { status: 404, body: { error: 'Not found' } }
     return { status: 200, body: result }
-  }),
-)
+  })
+})
 
 app.get('/api/v1/s/:token/download', async (c) => {
   const shareRepo = createShareRepository(c.env.DB)
   const fileRepo = createFileRepository(c.env.DB)
-  const share = await shareRepo.findByToken(c.req.param('token'))
+  const svc = createShareService(shareRepo, fileRepo, c.env.SHARED_SECRET ?? 'local-dev')
+  const token = c.req.param('token')
+
+  const share = await shareRepo.findByToken(token)
   if (!share) return c.json({ error: 'Not found' }, 404)
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Expired' }, 410)
+
+  if (share.passwordHash) {
+    const vt = c.req.header('X-Verify-Token') ?? c.req.query('vt')
+    if (!vt || !(await svc.validateVerifyToken(token, vt))) {
+      return c.json({ error: 'password_required' }, 403)
+    }
+  }
+
   const record = await fileRepo.findById(share.fileId)
   if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
   const storage = createStorageRepository(c.env.STORAGE)
@@ -108,12 +179,22 @@ app.get('/api/v1/s/:token/download', async (c) => {
 app.get('/api/v1/s/:token/download/:fileId', async (c) => {
   const shareRepo = createShareRepository(c.env.DB)
   const fileRepo = createFileRepository(c.env.DB)
-  const share = await shareRepo.findByToken(c.req.param('token'))
+  const svc = createShareService(shareRepo, fileRepo, c.env.SHARED_SECRET ?? 'local-dev')
+  const token = c.req.param('token')
+
+  const share = await shareRepo.findByToken(token)
   if (!share) return c.json({ error: 'Not found' }, 404)
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) return c.json({ error: 'Expired' }, 410)
+
+  if (share.passwordHash) {
+    const vt = c.req.header('X-Verify-Token') ?? c.req.query('vt')
+    if (!vt || !(await svc.validateVerifyToken(token, vt))) {
+      return c.json({ error: 'password_required' }, 403)
+    }
+  }
+
   const record = await fileRepo.findById(c.req.param('fileId'))
   if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
-  const svc = createShareService(shareRepo, fileRepo)
   if (record.id !== share.fileId && !(await svc.isDescendant(record.id, share.fileId))) {
     return c.json({ error: 'Forbidden' }, 403)
   }

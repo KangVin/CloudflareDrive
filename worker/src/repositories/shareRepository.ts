@@ -13,6 +13,8 @@ function mapRow(row: Record<string, unknown>): ShareRow {
     token: row.token as string,
     expiresAt: row.expires_at as string | null,
     createdAt: row.created_at as string,
+    passwordHash: row.password_hash as string | null,
+    passwordSalt: row.password_salt as string | null,
     fileName: row.file_name as string,
     fileType: row.file_type as 'file' | 'folder',
   }
@@ -75,12 +77,20 @@ export function createShareRepository(db: D1Database) {
     const now = new Date().toISOString()
     await db
       .prepare(
-        `INSERT INTO shares (id, file_id, token, expires_at, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO shares (id, file_id, token, expires_at, created_at, password_hash, password_salt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(id, input.fileId, input.token, input.expiresAt, now)
+      .bind(id, input.fileId, input.token, input.expiresAt, now, input.passwordHash, input.passwordSalt)
       .run()
-    return { id, fileId: input.fileId, token: input.token, expiresAt: input.expiresAt, createdAt: now }
+    return {
+      id,
+      fileId: input.fileId,
+      token: input.token,
+      expiresAt: input.expiresAt,
+      createdAt: now,
+      passwordHash: input.passwordHash,
+      passwordSalt: input.passwordSalt,
+    }
   }
 
   async function remove(id: string): Promise<void> {

@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { ref, shallowRef, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NSpin, NButton, NEmpty, NIcon, NPagination, useMessage } from 'naive-ui'
-import { DocumentOutline, DownloadOutline, FolderOpenOutline, ArrowBackOutline } from '@vicons/ionicons5'
-import { getPublicShare, getPublicBrowse } from '@/api/shares'
+import { NSpin, NButton, NEmpty, NIcon, NInput, NPagination, useMessage } from 'naive-ui'
+import {
+  LockClosedOutline,
+  DocumentOutline,
+  DownloadOutline,
+  FolderOpenOutline,
+  ArrowBackOutline,
+} from '@vicons/ionicons5'
+import { getPublicShare, getPublicBrowse, verifySharePassword } from '@/api/shares'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { PublicShareResult, PublicShareFolder, PublicShareFileItem } from '@/types'
 
@@ -14,10 +20,16 @@ const router = useRouter()
 const settings = useSettingsStore()
 const message = useMessage()
 const loading = ref(true)
+const verifying = ref(false)
 const error = ref<string | null>(null)
 const data = shallowRef<PublicShareResult | null>(null)
 const page = ref(1)
 const pageSize = ref(DEFAULT_PAGE_SIZE)
+
+/** Password-protected share state */
+const passwordRequired = ref(false)
+const passwordInput = ref('')
+const verifyToken = ref<string | null>(null)
 
 /** Stack of previous folder views for back navigation: each entry contains the folder data to restore */
 const folderStack = shallowRef<
@@ -27,6 +39,13 @@ const folderStack = shallowRef<
 /** Currently displayed folder data (for folder-type shares) */
 const currentFolder = shallowRef<PublicShareFolder | null>(null)
 
+/** Append verify token as query param for download links */
+function dlUrl(path: string): string {
+  return verifyToken.value
+    ? `${path}${path.includes('?') ? '&' : '?'}vt=${encodeURIComponent(verifyToken.value)}`
+    : path
+}
+
 const totalPages = computed(() => {
   if (!currentFolder.value) return 1
   return Math.max(1, Math.ceil(currentFolder.value.total / currentFolder.value.pageSize))
@@ -34,18 +53,46 @@ const totalPages = computed(() => {
 
 async function loadRoot() {
   loading.value = true
+  error.value = null
   const token = route.params.token as string
   try {
-    const result = await getPublicShare(token, page.value, pageSize.value)
+    const result = await getPublicShare(token, page.value, pageSize.value, verifyToken.value ?? undefined)
     data.value = result
     if (result.type === 'folder') {
       currentFolder.value = result
       folderStack.value = []
     }
-  } catch {
-    error.value = settings.t('shareNotFoundOrExpired')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'password_required') {
+      passwordRequired.value = true
+    } else {
+      error.value = settings.t('shareNotFoundOrExpired')
+    }
   } finally {
     loading.value = false
+  }
+}
+
+async function handleVerifyPassword() {
+  if (!passwordInput.value) return
+  verifying.value = true
+  const token = route.params.token as string
+  try {
+    const res = await verifySharePassword(token, passwordInput.value)
+    verifyToken.value = res.verify_token
+    passwordRequired.value = false
+    passwordInput.value = ''
+    await loadRoot()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'wrong_password') {
+      message.error(settings.t('wrongPassword'))
+    } else {
+      message.error(settings.t('verificationFailed'))
+    }
+  } finally {
+    verifying.value = false
   }
 }
 
@@ -53,7 +100,7 @@ async function openFolder(folderId: string, _folderName: string) {
   loading.value = true
   const token = route.params.token as string
   try {
-    const result = await getPublicBrowse(token, folderId)
+    const result = await getPublicBrowse(token, folderId, 1, DEFAULT_PAGE_SIZE, verifyToken.value ?? undefined)
     const cur = currentFolder.value
     if (cur) {
       folderStack.value = [
@@ -64,7 +111,17 @@ async function openFolder(folderId: string, _folderName: string) {
     page.value = 1
     currentFolder.value = result
   } catch (e) {
-    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'password_required') {
+      verifyToken.value = null
+      passwordRequired.value = true
+      data.value = null
+      currentFolder.value = null
+      folderStack.value = []
+      message.warning(settings.t('passwordExpired'))
+    } else {
+      message.error(msg || settings.t('failedToLoadFolders'))
+    }
   } finally {
     loading.value = false
   }
@@ -97,11 +154,21 @@ async function onPageChange(newPage: number) {
     if (!cur) return
     const isRoot = folderStack.value.length === 0
     const result = isRoot
-      ? await getPublicShare(token, newPage, pageSize.value)
-      : await getPublicBrowse(token, cur.id, newPage, pageSize.value)
+      ? await getPublicShare(token, newPage, pageSize.value, verifyToken.value ?? undefined)
+      : await getPublicBrowse(token, cur.id, newPage, pageSize.value, verifyToken.value ?? undefined)
     if (result.type === 'folder') currentFolder.value = result
   } catch (e) {
-    message.error(e instanceof Error ? e.message : settings.t('failedToLoadFolders'))
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'password_required') {
+      verifyToken.value = null
+      passwordRequired.value = true
+      data.value = null
+      currentFolder.value = null
+      folderStack.value = []
+      message.warning(settings.t('passwordExpired'))
+    } else {
+      message.error(msg || settings.t('failedToLoadFolders'))
+    }
   } finally {
     loading.value = false
   }
@@ -112,7 +179,24 @@ onMounted(loadRoot)
 
 <template>
   <div style="max-width: 720px; margin: 40px auto; padding: 0 16px">
-    <NSpin :show="loading">
+    <div v-if="passwordRequired" style="text-align: center; margin-top: 80px">
+      <NIcon size="48" style="color: #888; margin-bottom: 16px"><LockClosedOutline /></NIcon>
+      <h3>{{ settings.t('shareEncrypted') }}</h3>
+      <div style="max-width: 300px; margin: 16px auto">
+        <NInput
+          v-model:value="passwordInput"
+          type="password"
+          show-password-on="click"
+          :placeholder="settings.t('passwordPlaceholder')"
+          :disabled="verifying"
+          @keyup.enter="handleVerifyPassword"
+        />
+      </div>
+      <NButton type="primary" :loading="verifying" :disabled="!passwordInput" @click="handleVerifyPassword">
+        {{ settings.t('verifyPassword') }}
+      </NButton>
+    </div>
+    <NSpin v-else :show="loading">
       <div v-if="data">
         <template v-if="data.type === 'file'">
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px">
@@ -122,7 +206,7 @@ onMounted(loadRoot)
               <span style="color: #888">{{ data.sizeFormatted }} · {{ data.mimeType }}</span>
             </div>
           </div>
-          <NButton type="primary" :href="data.downloadUrl" tag="a" target="_blank">
+          <NButton type="primary" :href="dlUrl(data.downloadUrl)" tag="a" target="_blank">
             <template #icon
               ><NIcon><DownloadOutline /></NIcon
             ></template>
@@ -160,7 +244,7 @@ onMounted(loadRoot)
             <NButton
               v-if="file.type === 'file'"
               size="tiny"
-              :href="`/api/v1/s/${route.params.token}/download/${file.id}`"
+              :href="dlUrl(`/api/v1/s/${route.params.token}/download/${file.id}`)"
               tag="a"
               target="_blank"
             >

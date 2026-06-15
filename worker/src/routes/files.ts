@@ -19,9 +19,9 @@ function deleteShareCacheEntries(origin: string, token: string, folderId: string
 }
 
 /** Invalidate Cache API entries for a share if the given folder is within a shared tree */
-async function invalidateShareCache(db: D1Database, origin: string, folderId: string | null) {
+async function invalidateShareCache(db: D1Database, origin: string, folderId: string | null, secret: string) {
   if (!folderId) return
-  const svc = createShareService(createShareRepository(db), createFileRepository(db))
+  const svc = createShareService(createShareRepository(db), createFileRepository(db), secret)
   const token = await svc.findShareTokenByDescendant(folderId)
   if (!token) return
   deleteShareCacheEntries(origin, token, folderId)
@@ -72,7 +72,7 @@ files.post('/instant', async (c) => {
   )
   if (!item) return c.json({ error: 'Hash not found' }, 404)
   const origin = new URL(c.req.url).origin
-  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId, c.env.SHARED_SECRET ?? 'local-dev'))
   return c.json(item, 201)
 })
 
@@ -82,7 +82,7 @@ files.post('/:id/copy', async (c) => {
   const item = await svc.copy(c.req.param('id'), body.parentId ?? null)
   if (!item) return c.json({ error: 'Not found' }, 404)
   const origin = new URL(c.req.url).origin
-  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId, c.env.SHARED_SECRET ?? 'local-dev'))
   return c.json(item, 201)
 })
 
@@ -99,7 +99,7 @@ files.post('/', async (c) => {
   const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
   const item = await svc.createFolder(body.name, body.parentId ?? null)
   const origin = new URL(c.req.url).origin
-  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId, c.env.SHARED_SECRET ?? 'local-dev'))
   return c.json(item, 201)
 })
 
@@ -150,7 +150,7 @@ files.post('/upload/complete', async (c) => {
     body.mimeType ?? 'application/octet-stream',
   )
   const origin = new URL(c.req.url).origin
-  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId, c.env.SHARED_SECRET ?? 'local-dev'))
   return c.json(item, 201)
 })
 
@@ -173,7 +173,7 @@ files.post('/upload', async (c) => {
   const buf = await file.arrayBuffer()
   const item = await svc.upload(file.name, parentId, file.type, buf, hash)
   const origin = new URL(c.req.url).origin
-  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId))
+  c.executionCtx.waitUntil(invalidateShareCache(c.env.DB, origin, item.parentId, c.env.SHARED_SECRET ?? 'local-dev'))
   return c.json(item, 201)
 })
 
@@ -200,9 +200,9 @@ files.patch('/:id', async (c) => {
     const origin = new URL(c.req.url).origin
     c.executionCtx.waitUntil(
       (async () => {
-        await invalidateShareCache(c.env.DB, origin, old?.parentId ?? null)
+        await invalidateShareCache(c.env.DB, origin, old?.parentId ?? null, c.env.SHARED_SECRET ?? 'local-dev')
         if (body.parentId !== undefined && body.parentId !== old?.parentId) {
-          await invalidateShareCache(c.env.DB, origin, body.parentId ?? null)
+          await invalidateShareCache(c.env.DB, origin, body.parentId ?? null, c.env.SHARED_SECRET ?? 'local-dev')
         }
         await invalidateShareCacheByFileId(c.env.DB, origin, old?.id ?? null)
       })(),
@@ -229,7 +229,7 @@ files.delete('/:id', async (c) => {
   const origin = new URL(c.req.url).origin
   c.executionCtx.waitUntil(
     (async () => {
-      await invalidateShareCache(c.env.DB, origin, file?.parentId ?? null)
+      await invalidateShareCache(c.env.DB, origin, file?.parentId ?? null, c.env.SHARED_SECRET ?? 'local-dev')
       await invalidateShareCacheByFileId(c.env.DB, origin, file?.id ?? null)
     })(),
   )

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NDataTable, NSpace, NSpin, NEmpty, NIcon, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
-import { TrashOutline, LinkOutline } from '@vicons/ionicons5'
+import { TrashOutline, LinkOutline, LockClosedOutline } from '@vicons/ionicons5'
 import { useShareStore } from '@/stores/shareStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useRequest } from '@/composables/useRequest'
@@ -75,6 +75,19 @@ const columns = computed<DataTableColumn<ShareRecord>[]>(() => [
     title: settings.t('type'),
     key: 'fileType',
     width: 80,
+  },
+  {
+    title: '',
+    key: 'passwordHash',
+    width: 50,
+    render(row) {
+      return row.passwordHash
+        ? h(NTooltip, null, {
+            trigger: () => h(NIcon, { size: 18 }, () => h(LockClosedOutline)),
+            default: () => settings.t('passwordProtected'),
+          })
+        : null
+    },
   },
   {
     title: settings.t('shareLink'),
