@@ -8,6 +8,7 @@ import { createFileRepository } from './repositories/fileRepository'
 import { createStorageRepository } from './repositories/storageRepository'
 import { createShareRepository } from './repositories/shareRepository'
 import { createShareService } from './services/shareService'
+import { parseRangeHeader } from './utils/range'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -167,12 +168,39 @@ app.get('/api/v1/s/:token/download', async (c) => {
 
   const record = await fileRepo.findById(share.fileId)
   if (!record || record.isTrashed || !record.r2Key) return c.json({ error: 'Not found' }, 404)
+
   const storage = createStorageRepository(c.env.STORAGE)
+  const fileSize = record.size
+  const rangeHeader = c.req.header('range')
+  const range = parseRangeHeader(rangeHeader, fileSize)
+
+  if (range) {
+    const obj = await storage.download(record.r2Key, {
+      range: { offset: range.start, length: range.end - range.start + 1 },
+    })
+    if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+
+    const headers = new Headers()
+    obj.writeHttpMetadata(headers)
+    headers.set('Content-Type', record.mimeType || 'application/octet-stream')
+    headers.set('Content-Disposition', `inline; filename="${record.name}"`)
+    headers.set('Accept-Ranges', 'bytes')
+    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${fileSize}`)
+    headers.set('Content-Length', String(range.end - range.start + 1))
+    headers.set('Cache-Control', 'public, max-age=86400')
+
+    return new Response(obj.body, { status: 206, headers })
+  }
+
   const obj = await storage.download(record.r2Key)
   if (!obj) return c.json({ error: 'File not found in storage' }, 404)
   const headers = new Headers()
   obj.writeHttpMetadata(headers)
+  headers.set('Content-Type', record.mimeType || 'application/octet-stream')
   headers.set('Content-Disposition', `inline; filename="${record.name}"`)
+  headers.set('Accept-Ranges', 'bytes')
+  headers.set('Content-Length', String(fileSize))
+  headers.set('Cache-Control', 'public, max-age=86400')
   return new Response(obj.body, { headers })
 })
 
@@ -199,11 +227,35 @@ app.get('/api/v1/s/:token/download/:fileId', async (c) => {
     return c.json({ error: 'Forbidden' }, 403)
   }
   const storage = createStorageRepository(c.env.STORAGE)
+  const fileSize = record.size
+  const rangeHeader = c.req.header('range')
+  const range = parseRangeHeader(rangeHeader, fileSize)
+
+  if (range) {
+    const obj = await storage.download(record.r2Key, {
+      range: { offset: range.start, length: range.end - range.start + 1 },
+    })
+    if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+
+    const headers = new Headers()
+    obj.writeHttpMetadata(headers)
+    headers.set('Content-Type', record.mimeType || 'application/octet-stream')
+    headers.set('Content-Disposition', `attachment; filename="${record.name}"`)
+    headers.set('Accept-Ranges', 'bytes')
+    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${fileSize}`)
+    headers.set('Content-Length', String(range.end - range.start + 1))
+
+    return new Response(obj.body, { status: 206, headers })
+  }
+
   const obj = await storage.download(record.r2Key)
   if (!obj) return c.json({ error: 'File not found in storage' }, 404)
   const headers = new Headers()
   obj.writeHttpMetadata(headers)
+  headers.set('Content-Type', record.mimeType || 'application/octet-stream')
   headers.set('Content-Disposition', `attachment; filename="${record.name}"`)
+  headers.set('Accept-Ranges', 'bytes')
+  headers.set('Content-Length', String(fileSize))
   return new Response(obj.body, { headers })
 })
 

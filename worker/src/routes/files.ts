@@ -5,6 +5,7 @@ import { createStorageRepository } from '../repositories/storageRepository'
 import { createShareRepository } from '../repositories/shareRepository'
 import { createShareService } from '../services/shareService'
 import { createFileService } from '../services/fileService'
+import { parseRangeHeader } from '../utils/range'
 
 const files = new Hono<{ Bindings: Env }>()
 
@@ -187,6 +188,48 @@ files.get('/:id/download', async (c) => {
   const headers = new Headers()
   obj.writeHttpMetadata(headers)
   headers.set('Content-Disposition', `attachment; filename="${item.name}"`)
+  return new Response(obj.body, { headers })
+})
+
+files.get('/:id/media', async (c) => {
+  const svc = createFileService(createFileRepository(c.env.DB), createStorageRepository(c.env.STORAGE))
+  const item = await svc.get(c.req.param('id'))
+  if (!item || item.type !== 'file' || !item.r2Key) return c.json({ error: 'Not found' }, 404)
+
+  const storage = createStorageRepository(c.env.STORAGE)
+  const fileSize = item.size
+  const rangeHeader = c.req.header('range')
+  const range = parseRangeHeader(rangeHeader, fileSize)
+
+  if (range) {
+    const obj = await storage.download(item.r2Key, {
+      range: { offset: range.start, length: range.end - range.start + 1 },
+    })
+    if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+
+    const headers = new Headers()
+    obj.writeHttpMetadata(headers)
+    headers.set('Content-Type', item.mimeType || 'application/octet-stream')
+    headers.set('Content-Disposition', `inline; filename="${item.name}"`)
+    headers.set('Accept-Ranges', 'bytes')
+    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${fileSize}`)
+    headers.set('Content-Length', String(range.end - range.start + 1))
+    headers.set('Cache-Control', 'private, max-age=86400')
+
+    return new Response(obj.body, { status: 206, headers })
+  }
+
+  const obj = await storage.download(item.r2Key)
+  if (!obj) return c.json({ error: 'File not found in storage' }, 404)
+
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('Content-Type', item.mimeType || 'application/octet-stream')
+  headers.set('Content-Disposition', `inline; filename="${item.name}"`)
+  headers.set('Accept-Ranges', 'bytes')
+  headers.set('Content-Length', String(fileSize))
+  headers.set('Cache-Control', 'private, max-age=86400')
+
   return new Response(obj.body, { headers })
 })
 

@@ -38,6 +38,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { searchFiles } from '@/api/search'
 import { copyFile, trashFile, updateFile } from '@/api/files'
 import { formatSize } from '@/utils/format'
+import { VIDEO_TYPES, AUDIO_TYPES } from '@/utils/constants'
 import { useRequest } from '@/composables/useRequest'
 import { useUpload } from '@/composables/useUpload'
 import UploadQueue from '@/components/UploadQueue.vue'
@@ -117,9 +118,11 @@ function handleContextMenuSelect(key: string) {
 const contextMenuOptions = computed<DropdownOption[]>(() => {
   const isFolder = contextMenuRow.value?.type === 'folder'
   const isFile = contextMenuRow.value?.type === 'file'
+  const mime = contextMenuRow.value?.mimeType ?? ''
+  const isMediaFile = isFile && (VIDEO_TYPES.includes(mime) || AUDIO_TYPES.includes(mime))
   return [
     ...(isFolder ? [{ label: settings.t('open'), key: 'open' }] : []),
-    ...(isFile ? [{ label: settings.t('preview'), key: 'preview' }] : []),
+    ...(isFile ? [{ label: isMediaFile ? settings.t('play') : settings.t('preview'), key: 'preview' }] : []),
     ...(isFile ? [{ label: settings.t('download'), key: 'download' }] : []),
     { type: 'divider' },
     { label: settings.t('rename'), key: 'rename' },

@@ -3,8 +3,8 @@ export function createStorageRepository(storage: R2Bucket) {
     return await storage.put(key, value)
   }
 
-  async function download(key: string) {
-    return await storage.get(key)
+  async function download(key: string, options?: R2GetOptions) {
+    return await storage.get(key, options)
   }
 
   async function remove(key: string): Promise<void> {
