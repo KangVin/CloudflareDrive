@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h } from 'vue'
-import { NLayout, NLayoutHeader, NLayoutContent, NMenu } from 'naive-ui'
+import { NLayout, NLayoutHeader, NLayoutContent, NMenu, NIcon } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import type { MenuOption } from 'naive-ui'
 import { FolderOpenOutline, TrashOutline, ShareOutline, SettingsOutline } from '@vicons/ionicons5'
@@ -14,22 +14,22 @@ const menuOptions = computed<MenuOption[]>(() => [
   {
     label: settings.t('files'),
     key: '/',
-    icon: () => h(FolderOpenOutline),
+    icon: () => h(NIcon, { size: 18 }, { default: () => h(FolderOpenOutline) }),
   },
   {
     label: settings.t('trash'),
     key: '/trash',
-    icon: () => h(TrashOutline),
+    icon: () => h(NIcon, { size: 18 }, { default: () => h(TrashOutline) }),
   },
   {
     label: settings.t('shares'),
     key: '/shares',
-    icon: () => h(ShareOutline),
+    icon: () => h(NIcon, { size: 18 }, { default: () => h(ShareOutline) }),
   },
   {
     label: settings.t('settings'),
     key: '/settings',
-    icon: () => h(SettingsOutline),
+    icon: () => h(NIcon, { size: 18 }, { default: () => h(SettingsOutline) }),
   },
 ])
 
